@@ -219,7 +219,7 @@ function renderRoulette(r) {
   if (spin?.id !== r.id) {
     stopRoulette();
     c.innerHTML = `<h2 style="font-size:2.2rem">${esc(r.title)}</h2>
-      <div class="roulette">${r.labels.map((l, i) => `<div class="slot" data-i="${i}">${esc(l)}</div>`).join('')}</div>
+      <div class="roulette${r.labels.length > 6 ? ' many' : ''}">${r.labels.map((l, i) => `<div class="slot" data-i="${i}">${esc(l)}</div>`).join('')}</div>
       <div class="big roulette-result"></div>`;
     const slots = [...c.querySelectorAll('.slot')];
     let i = 0, delay = 70;

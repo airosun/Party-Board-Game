@@ -24,7 +24,7 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 | | |
 |---|---|
 | Lobby | Room codes, up to 4 players, auto-reconnect when a phone locks/refreshes, host survives a page refresh |
-| Boards | **Bandit Bay** (62 spaces, 5 forks, default) and **Coin Cove** (27 spaces). Host picks in the lobby |
+| Boards | **Bandit Bay** (65 spaces, 5 forks incl. a locked gate, default) and **Coin Cove** (27 spaces). Host picks in the lobby |
 | Items | Bought at Item Shops, used on your phone before rolling (one per turn, bag holds 3) |
 | Star | Buy it for 20 coins as you **pass** it, then it moves somewhere new |
 | Turn loop | Roll 1–10 → hop space by space → land effect → next player |
@@ -42,7 +42,8 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 | 🍀 Lucky | n/a | Good roulette: +10, +20, free item, leader pays you 10 |
 | 💀 Super Bad Luck | n/a | Bad roulette: −10, lose half your coins, pay everyone 5, give last place 10, Star moves, lose a Star |
 | ⚔️ VS | n/a | Roulette picks a wager (5–20), everyone pays into a pot, minigame, winner takes the pot. **Space turns Blue afterwards** |
-| 🏦 Bank | Pay 5 coins into the Bank | Take everything in the Bank |
+| 🏦 Bank | Pay 5 coins into the Bank | Take everything in the Bank (all Banks share one pot) |
+| 🎁 Item Space | n/a | Random item (odds = 1/price, so cheap items are common; rare items only after halfway). Bag full → +5 coins |
 | ❗ Chance | n/a | Two random players: swap coins / Stars / spaces, or one pays the other 10 |
 | ❓ ? Space | n/a | *Placeholder: does nothing yet* |
 | 🦹 Bandit | Must pick one: steal 8–20 coins (free) **or** steal a Star (50 coins, greyed out if you can't afford it or nobody has one). Then pick a victim or 🎲 Random. Not a real space: costs no step | n/a |
@@ -56,8 +57,10 @@ One item per turn, used before rolling. Bag holds 3. **Rare** items aren't sold 
 |---|---|---|
 | 🐌 Bad Dice | 3 | Pick any player (even you): their next roll is 1–3. Canceled if they use Double / Triple / Custom Dice |
 | 🚀 Boost | 3 | +5 to your roll |
+| 🗝️ Secret Key | 7 | Passive: lets you open a locked gate (Bandit's Hideout). Used up when you go through |
 | 🎲 Double Dice | 8 | Roll two dice and add them |
 | 🌀 Warp Block | 10 | Swap places with a random player |
+| 🌪️ Twister | 10 | Blow the Star to a new spot |
 | 🎯 Custom Dice | 12 | Pick your roll (1–10) |
 | 🎰 Triple Dice | 15 | Roll three dice and add them |
 | 🦹 Bandit Call *(rare)* | 25 | Meet the Bandit right now |
@@ -89,7 +92,7 @@ Phases: `LOBBY → ROLL → MOVING (↔ JUNCTION / STAR_PROMPT) → … → MINI
 
 **An item**: add it to `server/items.js`, then its effect in `useItem()` in `game.js`.
 
-**A board**: each node is `{ id, type, x, y, next: [...] }`. Multiple `next` ids = a junction; `labels` names the choices shown on the phone. Hand-write the JSON (see `classic.json`) or generate it like `tools/build-bandit-bay.js` does (`node tools/build-bandit-bay.js`), then list it in `server/boards/index.js`.
+**A board**: each node is `{ id, type, x, y, next: [...] }`. Multiple `next` ids = a junction; `labels` names the choices shown on the phone; `gates: { nextId: 'secretKey' }` locks a path behind an item; `noStar: true` keeps the Star off a space. Hand-write the JSON (see `classic.json`) or generate it like `tools/build-bandit-bay.js` does (`node tools/build-bandit-bay.js`), then list it in `server/boards/index.js`.
 
 **A minigame**:
 1. Copy `server/minigames/mash.js`. Fill in `setup`, `start`, `onInput`, `publicState`, `getResults`, and set `better: 'higher' | 'lower'`.

@@ -98,11 +98,12 @@ function buildActions(s, myTurn, myPrompt, self) {
 
   if (s.phase === 'ROLL' && myTurn) {
     a.append(btn('🎲 Roll!', () => send({ type: 'roll' })));
-    if (self.items.length && !s.turnItemUsed) {
+    if (self.items.some(id => !ITEMS[id]?.passive) && !s.turnItemUsed) {
       const row = document.createElement('div');
       row.className = 'item-row';
       self.items.forEach((id, index) => {
         const it = ITEMS[id] || { name: id, icon: '', desc: '' };
+        if (it.passive) return; // e.g. Secret Key works by itself at gates
         const solo = id === 'warpBlock' && s.players.length < 2;
         const b = btn(`${it.icon} Use ${it.name}`, () => send({ type: 'useItem', index }), it.desc);
         b.disabled = solo;

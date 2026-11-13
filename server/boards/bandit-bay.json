@@ -1,7 +1,7 @@
 {
  "id": "bandit-bay",
  "name": "Bandit Bay",
- "description": "Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the Bandit's Hideout",
+ "description": "Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the locked Bandit's Hideout",
  "width": 1920,
  "height": 1080,
  "startNodeId": 0,
@@ -33,10 +33,17 @@
   },
   {
    "text": "Back Alley",
-   "x": 903,
-   "y": 1060,
+   "x": 790,
+   "y": 1062,
    "size": 16,
    "alpha": 0.5
+  },
+  {
+   "text": "🔒",
+   "x": 276,
+   "y": 779.5,
+   "size": 26,
+   "alpha": 1
   },
   {
    "text": "◀ Bandit's Hideout",
@@ -44,6 +51,13 @@
    "y": 540,
    "size": 22,
    "alpha": 0.8
+  },
+  {
+   "text": "🗝️ Secret Key needed",
+   "x": 330,
+   "y": 830,
+   "size": 16,
+   "alpha": 0.7
   },
   {
    "text": "Shortcut ▼",
@@ -142,7 +156,7 @@
   },
   {
    "id": 9,
-   "type": "blue",
+   "type": "item",
    "x": 1245,
    "y": 170,
    "next": [
@@ -151,7 +165,7 @@
   },
   {
    "id": 10,
-   "type": "blue",
+   "type": "bank",
    "x": 1358,
    "y": 170,
    "next": [
@@ -255,7 +269,7 @@
   },
   {
    "id": 21,
-   "type": "blue",
+   "type": "item",
    "x": 1472,
    "y": 910,
    "next": [
@@ -291,7 +305,7 @@
   },
   {
    "id": 25,
-   "type": "blue",
+   "type": "bank",
    "x": 1017,
    "y": 910,
    "next": [
@@ -299,13 +313,13 @@
     60
    ],
    "labels": {
-    "26": "Main road ⬅️ (Bank)",
-    "60": "Back Alley ↙️ (skip the Bank)"
+    "26": "Main road ⬅️",
+    "60": "Back Alley ↙️ (longer)"
    }
   },
   {
    "id": 26,
-   "type": "bank",
+   "type": "blue",
    "x": 903,
    "y": 910,
    "next": [
@@ -377,7 +391,10 @@
    ],
    "labels": {
     "34": "Main road ⬆️",
-    "43": "Bandit's Hideout ➡️ (longer)"
+    "43": "Bandit's Hideout ➡️"
+   },
+   "gates": {
+    "43": "secretKey"
    }
   },
   {
@@ -463,7 +480,7 @@
    "x": 903,
    "y": 787,
    "next": [
-    26
+    25
    ]
   },
   {
@@ -473,7 +490,8 @@
    "y": 772,
    "next": [
     44
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 44,
@@ -482,7 +500,8 @@
    "y": 739,
    "next": [
     45
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 45,
@@ -491,7 +510,8 @@
    "y": 639,
    "next": [
     46
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 46,
@@ -500,7 +520,8 @@
    "y": 540,
    "next": [
     47
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 47,
@@ -509,7 +530,8 @@
    "y": 441,
    "next": [
     48
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 48,
@@ -518,7 +540,8 @@
    "y": 341,
    "next": [
     49
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 49,
@@ -527,7 +550,8 @@
    "y": 308,
    "next": [
     37
-   ]
+   ],
+   "noStar": true
   },
   {
    "id": 50,
@@ -585,7 +609,7 @@
   },
   {
    "id": 56,
-   "type": "blue",
+   "type": "item",
    "x": 1825,
    "y": 438,
    "next": [
@@ -621,20 +645,47 @@
   },
   {
    "id": 60,
-   "type": "red",
-   "x": 960,
-   "y": 1011,
+   "type": "blue",
+   "x": 988,
+   "y": 1007,
    "next": [
     61
    ]
   },
   {
    "id": 61,
-   "type": "blue",
-   "x": 846,
-   "y": 1011,
+   "type": "event",
+   "x": 893,
+   "y": 1015,
    "next": [
-    27
+    62
+   ]
+  },
+  {
+   "id": 62,
+   "type": "red",
+   "x": 792,
+   "y": 1015,
+   "next": [
+    63
+   ]
+  },
+  {
+   "id": 63,
+   "type": "item",
+   "x": 690,
+   "y": 1015,
+   "next": [
+    64
+   ]
+  },
+  {
+   "id": 64,
+   "type": "blue",
+   "x": 596,
+   "y": 1005,
+   "next": [
+    29
    ]
   }
  ]

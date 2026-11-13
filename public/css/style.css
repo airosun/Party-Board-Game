@@ -102,3 +102,5 @@ input, select {
 .phone .bag { text-align: center; opacity: .85; }
 .player-card .cursed { font-size: .75rem; background: #5c3d00; color: #ffca3a; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
 .phone button:disabled { filter: grayscale(1); }
+.roulette.many { grid-template-columns: 1fr 1fr; width: min(820px, 90vw); }
+.roulette.many .slot { font-size: 1.15rem; padding: 10px; }

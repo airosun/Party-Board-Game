@@ -29,11 +29,11 @@ const types = s => s.trim().split(/\s+/);
 // Main loop, clockwise from START
 const mainTypes = [
   // top: left → right (13)
-  ...types('start blue blue event shop blue blue lucky red blue blue event blue'),
+  ...types('start blue blue event shop blue blue lucky red item bank event blue'),
   // right: top → bottom (6)
   ...types('chance blue vs blue red blue'),
   // bottom: right → left (13)
-  ...types('blue event blue shop blue badluck blue bank blue red lucky blue event'),
+  ...types('blue event item shop blue badluck bank blue blue red lucky blue event'),
   // left: bottom → top (6)
   ...types('blue blue red vs event blue'),
 ];
@@ -56,16 +56,21 @@ const add = (pts, tps, fromId, toId, labelFrom, labelTo) => {
   return ids;
 };
 
-// Risky shortcut straight down the middle: top node 6 → bottom node 26 (the Bank)
+// Risky shortcut straight down the middle: top node 6 → ends on the bottom Bank (node 25),
+// so nobody gets to skip the Bank by taking it.
 const sTop = nodes[6], sBot = nodes[26];
 add(between([[sTop.x, sTop.y], [sBot.x, sBot.y]], 5), types('red badluck chance red badluck'),
-  6, 26, 'Main road ➡️', 'Shortcut ⬇️ (risky)');
+  6, 25, 'Main road ➡️', 'Shortcut ⬇️ (risky)');
 
 // Bandit's Hideout: a detour off the left side, node 33 → node 37
+// Locked: you need a Secret Key to go in. The Star never spawns in here.
 const dA = nodes[33], dB = nodes[37];
-add(between([[dA.x, dA.y], [420, 760], [540, 540], [420, 320], [dB.x, dB.y]], 7),
+const hideout = add(between([[dA.x, dA.y], [420, 760], [540, 540], [420, 320], [dB.x, dB.y]], 7),
   types('red event blue bandit lucky red blue'),
-  33, 37, 'Main road ⬆️', "Bandit's Hideout ➡️ (longer)");
+  33, 37, 'Main road ⬆️', "Bandit's Hideout ➡️");
+dA.gates = { [hideout[0]]: 'secretKey' };
+hideout.forEach(id => { nodes[id].noStar = true; });
+const gatePos = [(dA.x + nodes[hideout[0]].x) / 2, (dA.y + nodes[hideout[0]].y) / 2];
 
 // Treasure Trail: from the middle of the shortcut (the Chance space) across to the right side.
 // Avoids the shortcut's last Bad Luck space but drops you back on the main loop.
@@ -74,18 +79,18 @@ add(between([[nodes[40].x, nodes[40].y], [nodes[16].x, nodes[16].y]], 5), types(
 
 // Coin Cliffs: a longer, safer loop around the outside of the right side (node 14 → node 18)
 add(between([[nodes[14].x, nodes[14].y], [1815, 370], [1840, 540], [1815, 710], [nodes[18].x, nodes[18].y]], 5),
-  types('blue blue lucky blue blue'),
+  types('blue item lucky blue blue'),
   14, 18, 'Main road ⬇️ (VS + Red)', 'Coin Cliffs ↘️ (longer, safer)');
 
-// Back Alley: dips under the Bank so you skip the toll, but you can't cash it out either
-add(between([[nodes[25].x, nodes[25].y], [960, 1012], [846, 1012], [nodes[27].x, nodes[27].y]], 2),
-  types('red blue'),
-  25, 27, 'Main road ⬅️ (Bank)', 'Back Alley ↙️ (skip the Bank)');
+// Back Alley: forks right AFTER the Bank (so you still pass it) and loops under the main road
+add(between([[nodes[25].x, nodes[25].y], [985, 1015], [600, 1015], [nodes[29].x, nodes[29].y]], 5),
+  types('blue event red item blue'),
+  25, 29, 'Main road ⬅️', 'Back Alley ↙️ (longer)');
 
 const board = {
   id: 'bandit-bay',
   name: 'Bandit Bay',
-  description: 'Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the Bandit\'s Hideout',
+  description: 'Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the locked Bandit\'s Hideout',
   width: 1920,
   height: 1080,
   startNodeId: 0,
@@ -95,8 +100,10 @@ const board = {
     { text: 'Bandit Bay', x: 1300, y: 360, size: 64, alpha: 0.25 },
     { text: 'Treasure Trail', x: 1300, y: 495, size: 20, alpha: 0.5 },
     { text: 'Coin Cliffs', x: 1835, y: 290, size: 18, alpha: 0.5 },
-    { text: 'Back Alley', x: 903, y: 1060, size: 16, alpha: 0.5 },
+    { text: 'Back Alley', x: 790, y: 1062, size: 16, alpha: 0.5 },
+    { text: '🔒', x: gatePos[0], y: gatePos[1], size: 26, alpha: 1 },
     { text: "◀ Bandit's Hideout", x: 680, y: 540, size: 22, alpha: 0.8 },
+    { text: '🗝️ Secret Key needed', x: 330, y: 830, size: 16, alpha: 0.7 },
     { text: 'Shortcut ▼', x: 1000, y: 330, size: 20, alpha: 0.5 },
   ],
   nodes,

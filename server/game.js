@@ -12,7 +12,7 @@
 const crypto = require('crypto');
 const minigames = require('./minigames');
 const { SPACES, SPACE_META, banditEncounter } = require('./spaces');
-const { ITEMS, DICE_ITEMS } = require('./items');
+const { ITEMS, DICE_ITEMS, dropWeight } = require('./items');
 
 const MAX_PLAYERS = 4;
 const STAR_COST = 20;
@@ -79,6 +79,11 @@ class Game {
   isFinalStretch() { return this.round > this.maxRounds - FINAL_STRETCH_TURNS; }
   rareUnlockRound() { return Math.floor(this.maxRounds / 2) + 1; }       // e.g. turn 6 of 10
   itemUnlocked(id) { return !ITEMS[id].rare || this.round >= this.rareUnlockRound(); }
+  // Random unlocked item, cheaper ones more likely
+  randomItem() {
+    const pool = Object.keys(ITEMS).filter(id => this.itemUnlocked(id)).map(id => ({ id, weight: dropWeight(id) }));
+    return weightedPick(pool).id;
+  }
   beat() { this.broadcast(); return wait(T.beat); }
   ranked() { return [...this.players].sort((a, b) => b.stars - a.stars || b.coins - a.coins); }
   leader() { return this.ranked()[0]; }
@@ -214,7 +219,7 @@ class Game {
 
   async useItem(p, index) {
     const id = p.items[index];
-    if (!id || this.turnItemUsed) return;
+    if (!id || this.turnItemUsed || ITEMS[id].passive) return;
     const others = this.players.filter(o => o !== p);
     if (id === 'warpBlock' && !others.length) return; // nobody to swap with: keep the item
 
@@ -259,6 +264,11 @@ class Game {
       await this.offerStar(p);
     }
     if (id === 'banditCall') await banditEncounter(this, p);
+    if (id === 'twister') {
+      this.moveStar();
+      this.addLog(`🌪️ The Star got blown to a new spot!`);
+      await this.beat();
+    }
 
     this.phase = 'ROLL';
     this.broadcast();
@@ -302,11 +312,30 @@ class Game {
       const node = this.nodes.get(p.pos);
       let nextId = node.next[0];
       if (node.next.length > 1) {
-        nextId = await this.ask(p, 'JUNCTION', {
-          kind: 'junction',
-          text: 'Which way?',
-          options: node.next.map(id => ({ value: id, label: node.labels?.[id] || `Path ${id}` })),
-        });
+        // Gated paths (node.gates = { nextId: itemId }) only open if you carry that item
+        const gateItem = id => node.gates?.[id];
+        const open = node.next.filter(id => !gateItem(id) || p.items.includes(gateItem(id)));
+        if (open.length === 1) {
+          nextId = open[0];
+          if (open.length < node.next.length) {
+            this.addLog(`🔒 The gate is locked: ${p.name} has no Secret Key.`);
+            this.broadcast();
+          }
+        } else {
+          nextId = await this.ask(p, 'JUNCTION', {
+            kind: 'junction',
+            text: 'Which way?',
+            options: open.map(id => ({
+              value: id,
+              label: (gateItem(id) ? `${ITEMS[gateItem(id)].icon} Use ${ITEMS[gateItem(id)].name}: ` : '') + (node.labels?.[id] || `Path ${id}`),
+            })),
+          });
+        }
+        if (gateItem(nextId)) {
+          p.items.splice(p.items.indexOf(gateItem(nextId)), 1);
+          this.addLog(`🗝️ ${p.name} unlocked the gate!`);
+          this.broadcast();
+        }
       }
       p.pos = nextId;
       const space = SPACES[this.spaceType(nextId)];
@@ -361,7 +390,7 @@ class Game {
   }
 
   moveStar() {
-    const options = this.board.nodes.filter(n => this.spaceType(n.id) === 'blue' && n.id !== this.starNodeId);
+    const options = this.board.nodes.filter(n => this.spaceType(n.id) === 'blue' && !n.noStar && n.id !== this.starNodeId);
     this.starNodeId = options[Math.floor(Math.random() * options.length)].id;
   }
 

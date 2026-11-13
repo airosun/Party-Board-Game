@@ -8,7 +8,7 @@
 //
 // Hooks are async so they can ask the player something (game.ask) or spin a roulette.
 
-const { ITEMS, MAX_ITEMS } = require('./items');
+const { ITEMS, MAX_ITEMS, dropWeight } = require('./items');
 
 const BLUE_COINS = 3;
 const RED_COINS = 3;
@@ -98,7 +98,7 @@ const SPACES = {
           label: 'Free item', weight: 2,
           run: () => {
             if (p.items.length >= MAX_ITEMS) { game.give(p, 10); return `${p.name}'s bag is full: +10 coins instead`; }
-            const id = pickRandom(Object.keys(ITEMS).filter(i => game.itemUnlocked(i)));
+            const id = game.randomItem();
             p.items.push(id);
             return `${p.name} got a free ${ITEMS[id].name}!`;
           },
@@ -182,6 +182,23 @@ const SPACES = {
       game.bank = 0;
       game.give(p, a);
       game.addLog(a ? `🏦 ${p.name} cashed out the Bank: +${a} coins!` : `🏦 ${p.name} landed on the Bank… it's empty.`);
+    },
+  },
+
+  item: {
+    name: 'Item Space', color: '#80ed99', icon: '🎁', desc: 'Get a random item (cheaper items are more likely)',
+    async onLand(game, p) {
+      if (p.items.length >= MAX_ITEMS) {
+        game.give(p, 5);
+        game.addLog(`🎁 ${p.name}'s bag is full, so they get 5 coins instead.`);
+        return;
+      }
+      const pool = Object.keys(ITEMS).filter(id => game.itemUnlocked(id));
+      await game.roulette(p, `🎁 ${p.name}: Item Space!`, pool.map(id => ({
+        label: `${ITEMS[id].icon} ${ITEMS[id].name}`,
+        weight: dropWeight(id),
+        run: () => { p.items.push(id); return `${p.name} got a ${ITEMS[id].name}!`; },
+      })));
     },
   },
 

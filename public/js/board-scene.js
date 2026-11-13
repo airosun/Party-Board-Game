@@ -26,10 +26,10 @@ class BoardScene extends Phaser.Scene {
     this.star = this.add.text(0, 0, '⭐', { fontSize: '44px' }).setOrigin(0.5).setDepth(5).setVisible(false);
     this.tweens.add({ targets: this.star, scale: 1.15, yoyo: true, repeat: -1, duration: 600 });
 
-    const bankNode = this.boardData.nodes.find(n => n.type === 'bank');
-    this.bankText = bankNode && this.add.text(bankNode.x, bankNode.y + 50, '', {
+    // Every Bank shares one pot; show the total under each Bank space
+    this.bankTexts = this.boardData.nodes.filter(n => n.type === 'bank').map(n => this.add.text(n.x, n.y - 50, '', {
       fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffb703', stroke: '#000', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(6);
+    }).setOrigin(0.5).setDepth(6));
 
     const [dx, dy] = this.boardData.dicePos || [this.boardData.width / 2, this.boardData.height / 2];
     this.diceText = this.add.text(dx, dy, '', {
@@ -114,7 +114,7 @@ class BoardScene extends Phaser.Scene {
   applyState(s) {
     // Spaces that changed type during the game
     for (const n of this.boardData.nodes) this.paintNode(n.id, s.spaceOverrides?.[n.id] ?? n.type);
-    if (this.bankText) this.bankText.setText(s.phase === 'LOBBY' ? '' : `🏦 ${s.bank}`);
+    this.bankTexts.forEach(t => t.setText(s.phase === 'LOBBY' ? '' : `🏦 ${s.bank}`));
 
     // Star
     if (s.starNodeId != null && s.phase !== 'LOBBY') {

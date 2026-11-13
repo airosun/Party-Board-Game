@@ -14,7 +14,8 @@ host.emit('host:create', {}, async ({ code }) => {
     s.on('state', st => {
       if (st.phase === 'ROLL' && st.turnPlayerId === s.pid) {
         const me = st.players.find(p => p.id === s.pid);
-        if (me.items.length && !st.turnItemUsed && Math.random() < 0.7) s.emit('player:action', { type: 'useItem', index: 0 });
+        const usable = me.items.findIndex(id => id !== 'secretKey'); // keys are passive
+        if (usable >= 0 && !st.turnItemUsed && Math.random() < 0.7) s.emit('player:action', { type: 'useItem', index: usable });
         else s.emit('player:action', { type: 'roll' });
       }
       if (st.prompt?.playerId === s.pid) {
