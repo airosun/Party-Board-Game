@@ -29,6 +29,7 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 | Star | Sits on the **path between two spaces** (not on a space). Walk past it to buy for 20 coins, then it moves |
 | Items | Bought at Item Shops, won from Lucky / Item spaces, used on your phone before rolling (one per turn, bag holds 3) |
 | Minigames | 21 of them, after every round. **Free-for-all, 2v2 or 1v3** depending on the space colors everyone landed on |
+| Look | The board is drawn as an island: beaches, grass, sandy roads, palm trees, boats and drifting clouds. Spaces are glossy 3D discs, shops and the Bandit are wooden signposts, players are pawns, the camera zooms in to follow whoever is moving. Game fonts (Lilita One + Nunito), title screen with seats, prize-wheel roulette, podium results, confetti |
 | Animations | Big dice roll on the TV and your phone, floating +/− coins, item and Star pop-ups, flashing token for whoever's turn it is, big announcements (robberies, Stars, item uses) |
 | Turn counter | Big "TURN 3 / 10 · 7 turns left" on the TV; turn pill on phones; LAST TURN warning |
 | No time limits | Nobody gets auto-skipped. After 1 minute of waiting, other players get a **👉 Nudge** button (once each per turn) that pops up on the slow player's phone and vibrates it |

@@ -47,7 +47,13 @@ function showBoard(boardId) {
   shownBoardId = boardId;
   scene = null;
   if (phaserGame) phaserGame.destroy(true);
-  phaserGame = new Phaser.Game({
+  // Make sure the board font is loaded before Phaser draws any text
+  Promise.race([document.fonts.load('40px "Lilita One"'), new Promise(r => setTimeout(r, 1500))])
+    .then(() => { if (shownBoardId === boardId) phaserGame = makeGame(board); });
+}
+
+function makeGame(board) {
+  return new Phaser.Game({
     type: Phaser.AUTO, parent: 'board', width: board.width, height: board.height, backgroundColor: '#0d1528',
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     scene: [],
@@ -72,6 +78,7 @@ socket.on('state', s => {
   if (scene) scene.applyState(s);
   renderSidebar(s);
   renderOverlay(s);
+  renderSteps(s);
 });
 
 const nameOf = (s, id) => s.players.find(p => p.id === id)?.name ?? '?';
@@ -137,8 +144,23 @@ function renderOverlay(s) {
   const mg = s.minigame;
   if (s.phase !== 'ROULETTE') stopRoulette();
   el.classList.remove('see-through');
+  if (s.phase === 'GAME_OVER' && !confettiDone) { confettiDone = true; confetti(160); }
+  if (s.phase !== 'GAME_OVER') confettiDone = false;
 
-  if (s.phase === 'ROLL_OFF' && s.rollOff) {
+  if (s.phase === 'LOBBY') {
+    el.classList.remove('hidden');
+    el.classList.add('see-through');
+    const seats = [0, 1, 2, 3].map(i => s.players[i]);
+    c.innerHTML = `<div class="title-card">
+      <div class="logo">PARTY<span>BOARD</span></div>
+      <div class="board-name">🏝️ ${esc(BOARDS[s.boardId]?.name || '')}</div>
+      <div class="join-line">Join at <b>${esc(location.host)}/play.html</b> with code</div>
+      <div class="join-code">${esc(s.code)}</div>
+      <div class="seats">${seats.map((p, i) => p
+        ? `<div class="seat filled" style="--c:${p.color}"><div class="seat-pawn">♟</div>${esc(p.name)}</div>`
+        : `<div class="seat"><div class="seat-pawn">🤖</div>CPU will join</div>`).join('')}</div>
+    </div>`;
+  } else if (s.phase === 'ROLL_OFF' && s.rollOff) {
     el.classList.remove('hidden');
     const ro = s.rollOff;
     c.innerHTML = `<h2>🎲 Who goes first?</h2>
@@ -168,10 +190,11 @@ function renderOverlay(s) {
     c.innerHTML = `<h2>${esc(mg.name)}: Results</h2>
       ${tr ? `<div class="team-result ${tr.winner}">${tr.winner === 'tie' ? '🤝 TIE!' : `🏆 ${tr.winner.toUpperCase()} TEAM WINS`}</div>
         <div class="big">Red ${tr.teams.red.score} · Blue ${tr.teams.blue.score} (team average)</div>` : ''}
-      <table class="results-table">${mg.results.map(r => `<tr>
-        <td>${tr ? `<span class="team-tag ${r.team}">${r.team}</span>` : `#${r.place}`}</td>
+      ${tr ? `<table class="results-table">${mg.results.map(r => `<tr>
+        <td><span class="team-tag ${r.team}">${r.team}</span></td>
         <td>${chip(s, r.playerId)}</td><td>${esc(r.display)}</td>
-        <td>${r.reward ? `+${r.reward} 🪙` : ''}</td></tr>`).join('')}</table>`;
+        <td>${r.reward ? `+${r.reward} 🪙` : ''}</td></tr>`).join('')}</table>` : podium(s, mg.results.map(r => ({
+        playerId: r.playerId, place: r.place, line1: r.display, line2: r.reward ? `+${r.reward} 🪙` : '' })))}`;
   } else if (s.phase === 'GAME_OVER' && s.final) {
     el.classList.remove('hidden');
     c.innerHTML = renderGameOver(s);
@@ -213,12 +236,10 @@ function renderGameOver(s) {
   const winner = s.final.standings[0];
   const ps = s.players;
   const stat = (label, f) => `<tr><td>${label}</td>${ps.map(p => `<td>${f(p.stats, p)}</td>`).join('')}</tr>`;
-  return `<h2>🎉 ${esc(nameOf(s, winner.playerId))} wins!</h2>
+  return `<h2 class="winner-title">🎉 ${esc(nameOf(s, winner.playerId))} is the Superstar! 🎉</h2>
     <div class="final-grid">
       <div>
-        <div class="big">Final standings</div>
-        <table class="results-table">${s.final.standings.map(st => `<tr>
-          <td>#${st.place}</td><td>${chip(s, st.playerId)}</td><td>⭐ ${st.stars}</td><td>🪙 ${st.coins}</td></tr>`).join('')}</table>
+        ${podium(s, s.final.standings.map(st => ({ playerId: st.playerId, place: st.place, line1: `⭐ ${st.stars}`, line2: `🪙 ${st.coins}` })))}
         <div class="big" style="margin-top:18px">Bonus Stars</div>
         <table class="results-table small">${s.final.bonuses.map(b => `<tr>
           <td>⭐ ${b.title}</td><td>${b.playerIds.length ? b.playerIds.map(id => esc(nameOf(s, id))).join(', ') : 'nobody'}</td>
@@ -251,10 +272,13 @@ function renderGameOver(s) {
 socket.on('fx', fx => {
   if (!latest) return;
   switch (fx.kind) {
-    case 'roll': if (!fx.rollOff) scene?.showRoll(fx); break;
-    case 'coins': scene?.floatText(fx.playerId, `${fx.amount > 0 ? '+' : ''}${fx.amount} 🪙`, fx.amount > 0 ? '#80ed99' : '#ff8a8a'); break;
+    case 'roll': if (!fx.rollOff) showDice(fx); break;
+    case 'coins':
+      scene?.floatText(fx.playerId, `${fx.amount > 0 ? '+' : ''}${fx.amount} 🪙`, fx.amount > 0 ? '#80ed99' : '#ff8a8a');
+      scene?.coinShower(fx.playerId, fx.amount);
+      break;
     case 'item': scene?.floatText(fx.playerId, `🎁 ${ITEMS[fx.itemId]?.icon ?? ''} ${ITEMS[fx.itemId]?.name ?? ''}`, '#80ed99', 30); break;
-    case 'star': scene?.starFx(fx.playerId, fx.amount); break;
+    case 'star': scene?.starFx(fx.playerId, fx.amount); if (fx.amount > 0) confetti(70); break;
     case 'land': scene?.burst(fx.nodeId, SPACE_TYPES[fx.spaceType]?.color || '#ffffff'); break;
     case 'announce': announce(`${fx.icon ? `${fx.icon} ` : ''}${fx.text}`, fx.tone); break;
     case 'nudge': announce(`👉 ${fx.fromName} nudged ${fx.toName}!`, 'info'); break;
@@ -279,32 +303,44 @@ function showNext() {
   }, queue.length > 2 ? 1400 : 2400);
 }
 
-// ----- roulette (spins through the options, then settles on the server's pick) -----
+// ----- roulette: a prize wheel that spins and stops on the server's pick -----
 let spin = null;
+const WHEEL_COLORS = ['#ff595e', '#ffca3a', '#8ac926', '#1982c4', '#6a4c93', '#ff924c', '#52b788', '#4cc9f0', '#f72585', '#c77dff'];
 function renderRoulette(r) {
   const c = $('overlay-content');
   if (spin?.id !== r.id) {
     stopRoulette();
-    c.innerHTML = `<h2 style="font-size:2.2rem">${esc(r.title)}</h2>
-      <div class="roulette${r.labels.length > 6 ? ' many' : ''}">${r.labels.map((l, i) => `<div class="slot" data-i="${i}">${esc(l)}</div>`).join('')}</div>
+    const n = r.labels.length, seg = 360 / n, R = 230;
+    const pt = a => [R * Math.sin((a * Math.PI) / 180), -R * Math.cos((a * Math.PI) / 180)];
+    // Land the chosen slice under the pointer at the top, after a few full turns
+    const target = 360 * 5 + (360 - (r.resultIndex * seg + seg / 2)) + (Math.random() - 0.5) * seg * 0.6;
+    const slices = r.labels.map((label, i) => {
+      const [x1, y1] = pt(i * seg), [x2, y2] = pt((i + 1) * seg);
+      const mid = i * seg + seg / 2;
+      const text = label.length > 22 ? `${label.slice(0, 21)}…` : label;
+      // Labels run along the slice; flip the ones that will end up on the right half
+      // (after the spin) so none are upside down when the wheel stops
+      const finalAngle = (((mid + target) % 360) + 360) % 360;
+      const flip = finalAngle > 0 && finalAngle < 180;
+      return `<path d="M0 0 L${x1} ${y1} A${R} ${R} 0 ${seg > 180 ? 1 : 0} 1 ${x2} ${y2} Z" fill="${WHEEL_COLORS[i % WHEEL_COLORS.length]}" stroke="#fff" stroke-width="4"/>
+        <text transform="rotate(${mid}) translate(0 ${-R + 26}) rotate(${flip ? -90 : 90})" text-anchor="${flip ? 'end' : 'start'}" dominant-baseline="middle"
+          font-size="${n > 7 ? 17 : 21}" class="wheel-text">${esc(text)}</text>`;
+    }).join('');
+    c.innerHTML = `<h2 class="wheel-title">${esc(r.title)}</h2>
+      <div class="wheel-wrap">
+        <div class="wheel-pointer">▼</div>
+        <svg class="wheel" viewBox="-250 -250 500 500"><g class="wheel-spin">${slices}</g>
+          <circle r="34" fill="#14213d" stroke="#ffca3a" stroke-width="6"/><text class="wheel-hub" text-anchor="middle" dominant-baseline="central">🎲</text></svg>
+      </div>
       <div class="big roulette-result"></div>`;
-    const slots = [...c.querySelectorAll('.slot')];
-    let i = 0, delay = 70, steps = 0;
-    const total = slots.length * 2 + r.resultIndex;
-    const tick = () => {
-      slots.forEach(s => s.classList.remove('lit'));
-      slots[i % slots.length].classList.add('lit');
-      if (steps++ >= total) {
-        slots[i % slots.length].classList.add('picked');
-        spin.done = true;
-        if (spin.text) c.querySelector('.roulette-result').textContent = spin.text;
-        return;
-      }
-      i++; delay *= 1.06;
-      spin.timer = setTimeout(tick, delay);
-    };
-    spin = { id: r.id, timer: null, done: false, text: null };
-    tick();
+    const g = c.querySelector('.wheel-spin');
+    spin = { id: r.id, done: false, text: null, timer: null };
+    requestAnimationFrame(() => requestAnimationFrame(() => { g.style.transform = `rotate(${target}deg)`; }));
+    spin.timer = setTimeout(() => {
+      spin.done = true;
+      c.querySelector('.wheel-wrap')?.classList.add('stopped');
+      if (spin.text) c.querySelector('.roulette-result').textContent = spin.text;
+    }, 2500);
   }
   if (r.resultText) {
     spin.text = r.resultText;
@@ -312,6 +348,64 @@ function renderRoulette(r) {
   }
 }
 function stopRoulette() { if (spin) clearTimeout(spin.timer); spin = null; }
+
+// ----- podium (1st in the middle) -----
+function podium(s, rows) {
+  const byPlace = [...rows].sort((a, b) => a.place - b.place);
+  const top = byPlace.slice(0, 3);
+  const order = [top[1], top[0], top[2]].filter(Boolean);
+  const rest = byPlace.slice(3);
+  return `<div class="podium">${order.map(r => `
+      <div class="podium-col p${Math.min(r.place, 3)}">
+        <div class="podium-name">${chip(s, r.playerId)}</div>
+        <div class="podium-line">${esc(r.line1)}</div>
+        <div class="podium-line reward">${esc(r.line2 || '')}</div>
+        <div class="podium-block" style="--c:${colorOf(s, r.playerId)}">${r.place}</div>
+      </div>`).join('')}</div>
+    ${rest.map(r => `<div class="podium-rest">#${r.place} ${chip(s, r.playerId)} · ${esc(r.line1)} ${esc(r.line2 || '')}</div>`).join('')}`;
+}
+
+// ----- dice + steps -----
+let rollingUntil = 0;
+function showDice(fx) {
+  const wrap = $('dice'), die = $('die'), detail = $('die-detail');
+  const max = fx.rollKind === 'bad' ? 3 : 10;
+  rollingUntil = Date.now() + 1800;
+  $('steps').classList.add('hidden');
+  wrap.className = 'dice-wrap show rolling';
+  detail.textContent = '';
+  const tick = setInterval(() => { die.textContent = 1 + Math.floor(Math.random() * max); }, 60);
+  setTimeout(() => {
+    clearInterval(tick);
+    die.textContent = fx.value;
+    wrap.className = 'dice-wrap show landed';
+    detail.textContent = fx.dice && (fx.dice.length > 1 || fx.boost) ? `${fx.dice.join(' + ')}${fx.boost ? ` + ${fx.boost} 🚀` : ''}` : fx.rollKind === 'bad' ? '🐌 Bad Dice' : fx.rollKind === 'custom' ? '🎯 Custom Dice' : '';
+  }, 800);
+  setTimeout(() => { wrap.className = 'dice-wrap'; if (latest) renderSteps(latest); }, 1800);
+}
+function renderSteps(s) {
+  const el = $('steps');
+  const show = s.dice && s.dice.remaining > 0 && Date.now() > rollingUntil && ['MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'BANDIT', 'DISCARD'].includes(s.phase);
+  el.classList.toggle('hidden', !show);
+  if (show) el.innerHTML = `<span style="color:${colorOf(s, s.dice.playerId)}">●</span> ${esc(nameOf(s, s.dice.playerId))} · <b>${s.dice.remaining}</b> step${s.dice.remaining === 1 ? '' : 's'} left`;
+}
+
+// ----- confetti -----
+let confettiDone = false;
+function confetti(n) {
+  const layer = $('confetti');
+  const colors = ['#ff595e', '#ffca3a', '#8ac926', '#1982c4', '#6a4c93', '#ffffff'];
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement('i');
+    p.style.left = `${Math.random() * 100}%`;
+    p.style.background = colors[i % colors.length];
+    p.style.animationDuration = `${2.2 + Math.random() * 2}s`;
+    p.style.animationDelay = `${Math.random() * 0.8}s`;
+    p.style.transform = `rotate(${Math.random() * 360}deg)`;
+    layer.append(p);
+    setTimeout(() => p.remove(), 5200);
+  }
+}
 
 function renderLegend() {
   $('legend').innerHTML = Object.values(SPACE_TYPES).filter(t => t.icon !== 'GO').map(t => `

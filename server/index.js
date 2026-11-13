@@ -14,6 +14,7 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/vendor', express.static(path.join(__dirname, '..', 'node_modules', 'phaser', 'dist')));
+app.use('/fonts', express.static(path.join(__dirname, '..', 'node_modules', '@fontsource')));
 app.get('/health', (_, res) => res.send('ok'));
 
 const games = new Map();

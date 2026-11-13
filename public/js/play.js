@@ -50,6 +50,7 @@ socket.on('state', s => {
   latestAt = Date.now();
 
   $('my-dot').style.background = self.color;
+  document.documentElement.style.setProperty('--me', self.color);
   $('my-name').textContent = self.name;
   $('my-stats').textContent = s.phase === 'LOBBY' ? '' : `⭐ ${self.stars}   🪙 ${self.coins}`;
   $('turn-pill').textContent = s.phase === 'LOBBY' || s.phase === 'GAME_OVER' || s.phase === 'ROLL_OFF' ? ''
