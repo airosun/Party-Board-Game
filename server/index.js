@@ -33,7 +33,7 @@ io.on('connection', socket => {
   // ----- host -----
   socket.on('host:create', (_, cb) => {
     const code = makeCode();
-    const game = new Game(code, boards.defaultBoard, state => io.to(code).emit('state', state));
+    const game = new Game(code, boards.defaultBoard, state => io.to(code).emit('state', state), fx => io.to(code).emit('fx', fx));
     games.set(code, game);
     socket.join(code);
     socket.data = { code, role: 'host' };

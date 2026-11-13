@@ -21,17 +21,23 @@
     </section>
 
     <!-- In-game controller -->
-    <section id="game-view" class="hidden" style="display:flex; flex-direction:column; gap:16px; flex:1">
+    <section id="game-view" class="hidden" style="display:flex; flex-direction:column; gap:14px; flex:1">
       <header>
         <div class="me"><span class="dot" id="my-dot"></span><span id="my-name"></span></div>
+        <div class="turn-pill" id="turn-pill"></div>
         <div class="stats" id="my-stats"></div>
       </header>
       <div class="status" id="status"></div>
+      <div class="nudges" id="nudges"></div>
       <div class="actions" id="actions"></div>
       <div class="bag" id="bag"></div>
     </section>
   </main>
 
+  <div class="big-pop" id="big-pop"></div>
+  <div class="toasts" id="toasts"></div>
+
+  <script src="/js/controls.js"></script>
   <script src="/js/play.js"></script>
 </body>
 </html>

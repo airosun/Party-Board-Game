@@ -45,7 +45,6 @@ const SPACES = {
     async onLand(game, p) {
       const amt = RED_COINS * (game.isFinalStretch() ? 2 : 1);
       game.give(p, -amt);
-      p.redCount++;
       game.addLog(`🔴 ${p.name} landed on a red space: −${amt} coins`);
     },
   },
@@ -54,6 +53,10 @@ const SPACES = {
     name: 'Item Shop', color: '#06d6a0', icon: '🛒', passOnly: true,
     desc: 'Walk past to buy one item (doesn\'t use a step)',
     async onPass(game, p) {
+      if (game.isLastTurn()) {
+        game.addLog(`🛒 The Item Shop is closed for the last turn.`);
+        return game.beat();
+      }
       const stock = Object.entries(ITEMS);
       const unlocked = stock.filter(([id]) => game.itemUnlocked(id));
       const cheapest = Math.min(...unlocked.map(([, it]) => it.price));
@@ -80,7 +83,7 @@ const SPACES = {
       });
       if (choice !== 'leave') {
         const it = ITEMS[choice];
-        p.coins -= it.price;
+        game.spend(p, it.price);
         game.addLog(`🛒 ${p.name} bought a ${it.name}!`);
         await game.addItem(p, choice);
       }
@@ -99,7 +102,7 @@ const SPACES = {
         (() => {
           const id = game.randomItem();
           return {
-            label: 'Free item', weight: 2,
+            label: 'Free item', weight: 2, available: !game.isLastTurn(), // no items on the last turn
             run: () => `${p.name} got a free ${ITEMS[id].name}!`,
             after: () => game.addItem(p, id),
           };
@@ -138,7 +141,7 @@ const SPACES = {
         { label: 'The Star moves!', weight: 2, run: () => { game.moveStar(); return 'The Star flew to a new spot!'; } },
         {
           label: 'Lose a Star', weight: 1, available: p.stars > 0,
-          run: () => { p.stars--; return `${p.name} LOST A STAR!`; },
+          run: () => { game.addStar(p, -1); return `${p.name} LOST A STAR!`; },
         },
       ]);
     },
@@ -154,17 +157,9 @@ const SPACES = {
       let pot = 0;
       game.players.forEach(o => { const a = Math.min(wager, o.coins); game.give(o, -a); pot += a; });
       game.setSpaceType(nodeId, 'blue');
-      game.addLog(`⚔️ VS pot: ${pot} coins. This space is now blue.`);
-      await game.playMinigame({ banner: `VS Battle: winner takes ${pot} coins`, payout: rows => {
-        const winners = rows.filter(r => r.valid && r.place === 1);
-        if (!winners.length) { // nobody scored: refund
-          rows.forEach(r => { r.reward = 0; });
-          game.players.forEach(o => game.give(o, Math.floor(pot / game.players.length)));
-          return;
-        }
-        const share = Math.floor(pot / winners.length);
-        rows.forEach(r => { r.reward = winners.includes(r) ? share : 0; });
-      } });
+      game.announce(`VS pot: ${pot} coins! (1st 90%, 2nd 9%, 3rd 1%) This space is now blue.`, { icon: '⚔️' });
+      await game.beat();
+      await game.vsMinigame(pot);
     },
   },
 
@@ -182,13 +177,18 @@ const SPACES = {
       const a = game.bank;
       game.bank = 0;
       game.give(p, a);
-      game.addLog(a ? `🏦 ${p.name} cashed out the Bank: +${a} coins!` : `🏦 ${p.name} landed on the Bank… it's empty.`);
+      if (a) game.announce(`${p.name} cashed out the Bank: +${a} coins!`, { icon: '🏦', tone: 'good', playerIds: [p.id] });
+      else game.addLog(`🏦 ${p.name} landed on the Bank… it's empty.`);
     },
   },
 
   item: {
     name: 'Item Space', color: GREEN, icon: '🎁', desc: 'Get a random item (cheaper items are more likely)',
     async onLand(game, p) {
+      if (game.isLastTurn()) {
+        game.addLog(`🎁 The Item Space is empty on the last turn.`);
+        return;
+      }
       const pool = Object.keys(ITEMS).filter(id => game.itemUnlocked(id));
       await game.roulette(p, `🎁 ${p.name}: Item Space!`, pool.map(id => ({
         label: `${ITEMS[id].icon} ${ITEMS[id].name}`,
@@ -228,8 +228,8 @@ const SPACES = {
       }
       const [a, b] = [...game.players].sort(() => Math.random() - 0.5);
       await game.roulette(p, `❗ Chance Time: ${a.name} ⇄ ${b.name}`, [
-        { label: 'Swap coins', weight: 2, run: () => { [a.coins, b.coins] = [b.coins, a.coins]; return `${a.name} and ${b.name} swapped coins!`; } },
-        { label: 'Swap Stars', weight: 1, run: () => { [a.stars, b.stars] = [b.stars, a.stars]; return `${a.name} and ${b.name} swapped Stars!!`; } },
+        { label: 'Swap coins', weight: 2, run: () => { const d = b.coins - a.coins; game.give(a, d); game.give(b, -d); return `${a.name} and ${b.name} swapped coins!`; } },
+        { label: 'Swap Stars', weight: 1, run: () => { const d = b.stars - a.stars; game.addStar(a, d); game.addStar(b, -d); return `${a.name} and ${b.name} swapped Stars!!`; } },
         { label: 'Swap spaces', weight: 2, run: () => { [a.pos, b.pos] = [b.pos, a.pos]; return `${a.name} and ${b.name} swapped places!`; } },
         { label: `${a.name} → ${b.name}: 10 coins`, weight: 2, run: () => { const x = Math.min(10, a.coins); game.give(a, -x); game.give(b, x); return `${a.name} gave ${b.name} ${x} coins`; } },
         { label: `${b.name} → ${a.name}: 10 coins`, weight: 2, run: () => { const x = Math.min(10, b.coins); game.give(b, -x); game.give(a, x); return `${b.name} gave ${a.name} ${x} coins`; } },
@@ -275,19 +275,26 @@ async function banditEncounter(game, p) {
   const victim = pick === 'random' ? pickRandom(pool) : pool.find(o => o.id === pick);
 
   if (mode === 'star') {
-    p.coins -= STAR_STEAL_COST;
-    victim.stars--;
-    p.stars++;
-    game.addLog(`🦹⭐ ${p.name} paid ${STAR_STEAL_COST} coins and stole a STAR from ${victim.name}!`);
+    game.spend(p, STAR_STEAL_COST);
+    game.addStar(victim, -1);
+    game.addStar(p, 1);
+    p.stats.starsStolen++;
+    game.fx('steal', { thiefId: p.id, victimId: victim.id, star: true, thiefName: p.name, victimName: victim.name });
+    game.announce(`${p.name} stole a STAR from ${victim.name}!`, { icon: '🦹⭐', tone: 'bad', playerIds: [p.id, victim.id] });
   } else {
     const roll = COIN_STEAL_MIN + Math.floor(Math.random() * (COIN_STEAL_MAX - COIN_STEAL_MIN + 1));
     const amt = Math.min(roll, victim.coins);
     game.give(victim, -amt);
     game.give(p, amt);
-    game.addLog(amt === 0
-      ? `🦹 ${p.name} tried to rob ${victim.name}, but they're broke!`
-      : `🦹 ${p.name} stole ${amt} coins from ${victim.name}${amt < roll ? ' (all they had!)' : ''}`);
+    p.stats.coinsStolen += amt;
+    victim.stats.coinsRobbed += amt;
+    game.fx('steal', { thiefId: p.id, victimId: victim.id, coins: amt, thiefName: p.name, victimName: victim.name });
+    game.announce(amt === 0
+      ? `${p.name} tried to rob ${victim.name}, but they're broke!`
+      : `${p.name} stole ${amt} coins from ${victim.name}!${amt < roll ? ' (all they had)' : ''}`,
+    { icon: '🦹', tone: 'bad', playerIds: [p.id, victim.id] });
   }
+  await game.beat();
   return game.beat();
 }
 

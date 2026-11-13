@@ -23,14 +23,18 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 
 | | |
 |---|---|
-| Lobby | Room codes, up to 4 players, auto-reconnect when a phone locks/refreshes, host survives a page refresh |
-| Boards | **Bandit Bay** (65 spaces + Start, 5 forks incl. a locked gate, default) and **Coin Cove** (27 spaces). Host picks in the lobby |
-| Items | Bought at Item Shops, used on your phone before rolling (one per turn, bag holds 3) |
-| Star | Buy it for 20 coins as you **pass** it, then it moves somewhere new |
-| Turn loop | Roll 1–10 → hop space by space → land effect → next player |
-| Minigames | Run after every round. **Mash Mania** (tap race) and **Quick Draw** (reaction). Rewards 10/5/3/0 coins |
-| Ending | 3 bonus stars (Minigame, Coin, Unlucky), final standings, **Play again** |
-| AFK safety | Disconnected players get auto-rolled; prompts auto-answer after 30s |
+| Players | Always 4. Empty seats are filled with **CPU players** when the host hits Start |
+| Roll-off | Everyone rolls 1–10 to set turn order. A number can only be rolled once, so no ties |
+| Boards | **Bandit Bay** (65 spaces + Start, 5 forks incl. a locked gate, default) and **Coin Cove**. Host picks in the lobby |
+| Star | Sits on the **path between two spaces** (not on a space). Walk past it to buy for 20 coins, then it moves |
+| Items | Bought at Item Shops, won from Lucky / Item spaces, used on your phone before rolling (one per turn, bag holds 3) |
+| Minigames | 21 of them, after every round. **Free-for-all, 2v2 or 1v3** depending on the space colors everyone landed on |
+| Animations | Big dice roll on the TV and your phone, floating +/− coins, item and Star pop-ups, flashing token for whoever's turn it is, big announcements (robberies, Stars, item uses) |
+| Turn counter | Big "TURN 3 / 10 · 7 turns left" on the TV; turn pill on phones; LAST TURN warning |
+| No time limits | Nobody gets auto-skipped. After 1 minute of waiting, other players get a **👉 Nudge** button (once each per turn) that pops up on the slow player's phone and vibrates it |
+| Last turn | Shops closed, Item spaces empty, Lucky spaces can't give items |
+| Ending | 3 bonus stars, final standings and a full **stats table** (rolls, spaces, coins earned/lost/spent/stolen, items, minigame wins); each phone shows your own stats |
+| Reconnects | Phones rejoin automatically after locking/refreshing; a dropped player's decisions are auto-picked so the game never freezes |
 
 ## Spaces
 
@@ -43,13 +47,13 @@ Colors: **blue** = Blue, Lucky, VS, Chance · **red** = Red, Super Bad Luck · *
 | 🛒 Item Shop | Buy one item if you can afford the cheapest. Not a real space: costs no step, can't stop on it | n/a |
 | 🍀 Lucky | n/a | Good roulette: +10, +20, free item, leader pays you 10 |
 | 💀 Super Bad Luck | n/a | Bad roulette: −10, lose half your coins, pay everyone 5, give last place 10, Star moves, lose a Star |
-| ⚔️ VS | n/a | Roulette picks a wager (5–20), everyone pays into a pot, minigame, winner takes the pot. **Space turns Blue afterwards** |
+| ⚔️ VS | n/a | Roulette picks a wager (5–20), everyone pays into a pot, free-for-all minigame. Pot split **90% / 9% / 1% / 0%** by place. **Space turns Blue afterwards** |
 | 🏦 Bank | Pay 5 coins into the Bank | Take everything in the Bank (all Banks share one pot) |
 | 🎁 Item Space | n/a | Random item (odds = 1/price, so cheap items are common; rare items only after halfway) |
 | 🔃 Chance | n/a | Two random players: swap coins / Stars / spaces, or one pays the other 10 |
 | ❓ ? Space | n/a | Launches you 1–5 spaces forward along the main road. Nothing triggers on the way or where you land |
 | 🦹 Bandit | Must pick one: steal 8–20 coins (free) **or** steal a Star (50 coins, greyed out if you can't afford it or nobody has one). Then pick a victim or 🎲 Random. Not a real space: costs no step | n/a |
-| ⭐ Star | Buy for 20 coins as you pass (sits on a Blue space) | same |
+| ⭐ Star | Sits on the path between two spaces. Buy for 20 coins as you walk past | n/a |
 
 ## Items
 
@@ -66,7 +70,20 @@ One item per turn, used before rolling. Bag holds 3: getting a 4th (shop, Lucky,
 | 🎯 Custom Dice | 12 | Pick your roll (1–10) |
 | 🎰 Triple Dice | 15 | Roll three dice and add them |
 | 🦹 Bandit Call *(rare)* | 25 | Meet the Bandit right now |
-| 🟡 Golden Pipe *(rare)* | 25 | Warp straight to the Star (then roll as normal) |
+| 🟡 Golden Pipe *(rare)* | 25 | Warp to the space just before the Star (you still have to roll past it) |
+
+## Minigames
+
+Teams come from the color of the space each player landed on that round (**blue** = Blue/Lucky/VS/Chance, **red** = Red/Super Bad Luck; **green** spaces get randomly counted as red or blue). 4 of one color → free-for-all; 3–1 → 1v3; 2–2 → 2v2. Team score = average of the team members' scores. Rewards: free-for-all 10/5/3/0 coins; team games 10 coins to each winner (5 each on a tie).
+
+| Type | Minigames |
+|---|---|
+| Tap | Mash Mania, **Tug of War** (teams only), Sprint Steps (alternate L/R) |
+| Timing | Quick Draw (reaction), Perfect Stop (stop the slider), Hold Your Breath (hold 5.00s), Blind Timer (tap at 10.00s with the clock hidden), Beat Keeper (tap on the beat) |
+| Phone arcade | Mole Smash, Bomb Squad (avoid bombs), Memory Lane (repeat the pattern) |
+| Quick-fire questions | Math Dash, Color Clash, Count Up, Odd One Out, Higher or Lower, Simon Says, Bigger Bet, Pattern Panic, Coin Counter, Door Dash |
+
+CPU players play every minigame too (decent, not perfect).
 
 ## How it's built
 
@@ -75,12 +92,13 @@ server/
   index.js          Express + Socket.IO, rooms, routes events to the game
   game.js           ★ the state machine: turn flow, movement, roulette, minigame payouts
   spaces.js         every space type: onPass / onLand rules + colours/icons
+  cpu.js            CPU decisions (which path, what to buy, who to rob, which item to use)
   items.js          item catalog (prices, names); effects are in Game.useItem()
   boards/classic.json
-  minigames/        one file per minigame + index.js registry
+  minigames/        engines.js (game types) + list.js (the 21 minigames) + index.js (picking)
 public/
   host.html  js/host.js  js/board-scene.js   (Phaser board + DOM sidebar/overlays)
-  play.html  js/play.js                      (phone controller)
+  play.html  js/play.js  js/controls.js      (phone controller + minigame controls)
 test/simulate.js    bot game for smoke testing
 ```
 
@@ -96,17 +114,13 @@ Phases: `LOBBY → ROLL → MOVING (↔ JUNCTION / STAR_PROMPT) → … → MINI
 
 **A board**: each node is `{ id, type, x, y, next: [...] }`. Multiple `next` ids = a junction; `labels` names the choices shown on the phone; `gates: { nextId: 'secretKey' }` locks a path behind an item; `noStar: true` keeps the Star off a space. Hand-write the JSON (see `classic.json`) or generate it like `tools/build-bandit-bay.js` does (`node tools/build-bandit-bay.js`), then list it in `server/boards/index.js`.
 
-**A minigame**:
-1. Copy `server/minigames/mash.js`. Fill in `setup`, `start`, `onInput`, `publicState`, `getResults`, and set `better: 'higher' | 'lower'`.
-2. Register it in `server/minigames/index.js`.
-3. Phone controls: reuse `controls: 'mash'` or `'reaction'`, or add a new branch in `buildActions()` in `play.js`.
-4. Host live view: add a case in `renderLive()` in `host.js`.
+**A minigame**: add an entry to `server/minigames/list.js` using one of the engines in `engines.js` (`quiz` for question streams, `counter` for tapping, `reaction`, or `selfReport` for games the phone runs and scores itself). Set `modes` to choose free-for-all / team play and give it a `cpu` behaviour if the engine needs one. New phone controls go in `public/js/controls.js`.
 
 Tip: favour minigames where lag doesn't matter (totals, one-shot choices, locally timed reactions) over real-time movement/physics.
 
 ## Suggested next steps
 
-1. **1v3 / 2v2 minigames**: record the colour of the space each player landed on, then pick teams from that.
-2. **More minigames**: hidden-door pick (great for 1v3), timing bar, memory sequence, trivia.
-3. **Polish**: character sprites instead of circles, sounds, camera pan to the active player, dice-roll animation.
-4. **CPU players** to fill empty seats.
+1. **Sounds**: dice, coins, Star fanfare, minigame countdown.
+2. **Character sprites** instead of colored circles.
+3. **CPU difficulty** setting in the lobby.
+4. **Effects for ? spaces** and more boards.
