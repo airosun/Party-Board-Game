@@ -11,8 +11,8 @@
 
 const crypto = require('crypto');
 const minigames = require('./minigames');
-const { SPACES, SPACE_META } = require('./spaces');
-const { ITEMS } = require('./items');
+const { SPACES, SPACE_META, banditEncounter } = require('./spaces');
+const { ITEMS, DICE_ITEMS } = require('./items');
 
 const MAX_PLAYERS = 4;
 const STAR_COST = 20;
@@ -37,13 +37,18 @@ function weightedPick(options) {
 class Game {
   constructor(code, board, emit) {
     this.code = code;
-    this.board = board;
     this.emit = emit; // (publicState) => void
-    this.nodes = new Map(board.nodes.map(n => [n.id, n]));
+    this.setBoard(board);
     this.hostKey = crypto.randomUUID();
     this.lastActivity = Date.now();
     this.players = [];
     this.resetMatch();
+  }
+
+  setBoard(board) {
+    this.board = board;
+    this.nodes = new Map(board.nodes.map(n => [n.id, n]));
+    (this.players || []).forEach(p => { p.pos = board.startNodeId; });
   }
 
   resetMatch() {
@@ -55,7 +60,8 @@ class Game {
     this.bank = 0;
     this.spaceOverrides = {};   // nodeId -> type (e.g. VS spaces that turned blue)
     this.dice = null;
-    this.pendingDice = null;    // set by Custom / Double Dice for this turn
+    this.pendingDice = null;    // 'custom' | 'double' | 'triple' for this turn
+    this.pendingBoost = 0;      // +5 from a Boost
     this.turnItemUsed = false;
     this.prompt = null;
     this.waiter = null;
@@ -71,6 +77,8 @@ class Game {
   spaceType(nodeId) { return this.spaceOverrides[nodeId] ?? this.nodes.get(nodeId).type; }
   setSpaceType(nodeId, type) { this.spaceOverrides[nodeId] = type; }
   isFinalStretch() { return this.round > this.maxRounds - FINAL_STRETCH_TURNS; }
+  rareUnlockRound() { return Math.floor(this.maxRounds / 2) + 1; }       // e.g. turn 6 of 10
+  itemUnlocked(id) { return !ITEMS[id].rare || this.round >= this.rareUnlockRound(); }
   beat() { this.broadcast(); return wait(T.beat); }
   ranked() { return [...this.players].sort((a, b) => b.stars - a.stars || b.coins - a.coins); }
   leader() { return this.ranked()[0]; }
@@ -153,7 +161,7 @@ class Game {
 
   resetPlayerStats(p) {
     Object.assign(p, {
-      pos: this.board.startNodeId, coins: START_COINS, stars: 0, items: [],
+      pos: this.board.startNodeId, coins: START_COINS, stars: 0, items: [], badDice: false,
       minigameWins: 0, redCount: 0, coinsEarned: 0,
     });
   }
@@ -192,6 +200,7 @@ class Game {
     this.phase = 'ROLL';
     this.dice = null;
     this.pendingDice = null;
+    this.pendingBoost = 0;
     this.turnItemUsed = false;
     this.broadcast();
     const p = this.current();
@@ -216,8 +225,27 @@ class Game {
     this.broadcast();
     await wait(T.beat);
 
-    if (id === 'doubleDice') this.pendingDice = 'double';
-    if (id === 'customDice') this.pendingDice = 'custom';
+    if (DICE_ITEMS.has(id)) {
+      this.pendingDice = { doubleDice: 'double', tripleDice: 'triple', customDice: 'custom' }[id];
+      if (p.badDice) {
+        p.badDice = false;
+        this.addLog(`🐌 ${p.name}'s Bad Dice was canceled!`);
+        await this.beat();
+      }
+    }
+    if (id === 'boost') this.pendingBoost = 5;
+    if (id === 'badDice') {
+      const targetId = await this.ask(p, 'ITEM_TARGET', {
+        kind: 'badDiceTarget',
+        text: 'Who gets the Bad Dice? (rolls 1–3 next turn)',
+        options: this.players.map(o => ({ value: o.id, label: o === p ? `${o.name} (you)` : o.name })),
+        defaultValue: (others[0] || p).id,
+      });
+      const target = this.players.find(o => o.id === targetId) || p;
+      target.badDice = true;
+      this.addLog(`🐌 ${target.name} will roll 1–3 on their next turn!`);
+      await this.beat();
+    }
     if (id === 'warpBlock') {
       const o = others[Math.floor(Math.random() * others.length)];
       [p.pos, o.pos] = [o.pos, p.pos];
@@ -230,6 +258,8 @@ class Game {
       await this.beat();
       await this.offerStar(p);
     }
+    if (id === 'banditCall') await banditEncounter(this, p);
+
     this.phase = 'ROLL';
     this.broadcast();
   }
@@ -237,7 +267,7 @@ class Game {
   async takeTurn() {
     const p = this.current();
     this.phase = 'MOVING';
-    const d10 = () => 1 + Math.floor(Math.random() * 10);
+    const d = sides => 1 + Math.floor(Math.random() * sides);
     let roll, text;
     if (this.pendingDice === 'custom') {
       roll = await this.ask(p, 'CUSTOM_DICE', {
@@ -245,15 +275,24 @@ class Game {
         options: Array.from({ length: 10 }, (_, i) => ({ value: i + 1, label: String(i + 1) })),
         defaultValue: 5,
       });
-      text = `🎯 ${p.name} picked a ${roll}!`;
-    } else if (this.pendingDice === 'double') {
-      const a = d10(), b = d10();
-      roll = a + b;
-      text = `🎲🎲 ${p.name} rolled ${a} + ${b} = ${roll}!`;
+      text = `🎯 ${p.name} picked a ${roll}`;
+    } else if (this.pendingDice === 'double' || this.pendingDice === 'triple') {
+      const dice = Array.from({ length: this.pendingDice === 'double' ? 2 : 3 }, () => d(10));
+      roll = dice.reduce((a, b) => a + b, 0);
+      text = `🎲 ${p.name} rolled ${dice.join(' + ')} = ${roll}`;
+    } else if (p.badDice) {
+      p.badDice = false;
+      roll = d(3);
+      text = `🐌 ${p.name} was stuck with Bad Dice and rolled a ${roll}`;
     } else {
-      roll = d10();
-      text = `🎲 ${p.name} rolled a ${roll}!`;
+      roll = d(10);
+      text = `🎲 ${p.name} rolled a ${roll}`;
     }
+    if (this.pendingBoost) {
+      roll += this.pendingBoost;
+      text += ` +${this.pendingBoost} Boost = ${roll}`;
+    }
+    text += '!';
     this.dice = { playerId: p.id, value: roll, remaining: roll };
     this.addLog(text);
     this.broadcast();
@@ -403,7 +442,7 @@ class Game {
       if (isTurn) this.safe(this.useItem(this.current(), Number(action.index)));
     } else if (action.type === 'choose') {
       const w = this.waiter;
-      if (w && w.playerId === playerId && this.prompt.options.some(o => o.value === action.value)) {
+      if (w && w.playerId === playerId && this.prompt.options.some(o => o.value === action.value && !o.disabled)) {
         w.finish(action.value);
       }
     } else if (action.type === 'minigame') {
@@ -458,7 +497,7 @@ class Game {
 
   publicState() {
     const mg = this.minigame;
-    const turnPhases = ['ROLL', 'ITEM', 'MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'CUSTOM_DICE', 'ROULETTE'];
+    const turnPhases = ['ROLL', 'ITEM', 'ITEM_TARGET', 'MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'CUSTOM_DICE', 'BANDIT', 'ROULETTE'];
     return {
       code: this.code,
       phase: this.phase,
@@ -466,6 +505,8 @@ class Game {
       maxRounds: this.maxRounds,
       finalStretch: this.phase !== 'LOBBY' && this.isFinalStretch(),
       starCost: STAR_COST,
+      boardId: this.board.id,
+      rareUnlockRound: this.rareUnlockRound(),
       turnPlayerId: turnPhases.includes(this.phase) && !mg ? this.current()?.id : null,
       turnItemUsed: this.turnItemUsed,
       starNodeId: this.starNodeId,

@@ -9,16 +9,17 @@ host.emit('host:create', {}, async ({ code }) => {
   console.log('Room', code);
   const bots = [];
   for (const name of ['Mario', 'Luigi', 'Peach']) {
-    const s = io(URL);
+    const s = io(URL, { forceNew: true });
     await new Promise(r => s.emit('player:join', { code, name }, res => { s.pid = res.playerId; r(); }));
     s.on('state', st => {
       if (st.phase === 'ROLL' && st.turnPlayerId === s.pid) {
         const me = st.players.find(p => p.id === s.pid);
-        if (me.items.length && !st.turnItemUsed && Math.random() < 0.5) s.emit('player:action', { type: 'useItem', index: 0 });
+        if (me.items.length && !st.turnItemUsed && Math.random() < 0.7) s.emit('player:action', { type: 'useItem', index: 0 });
         else s.emit('player:action', { type: 'roll' });
       }
       if (st.prompt?.playerId === s.pid) {
-        const o = st.prompt.options[Math.floor(Math.random() * st.prompt.options.length)];
+        const opts = st.prompt.options.filter(o => !o.disabled);
+        const o = opts[Math.floor(Math.random() * opts.length)];
         s.emit('player:action', { type: 'choose', value: o.value });
       }
       if (st.phase === 'MINIGAME') {

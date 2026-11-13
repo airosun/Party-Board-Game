@@ -6,7 +6,7 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const { Game, SPACE_META, ITEMS } = require('./game');
-const board = require('./boards/classic.json');
+const boards = require('./boards');
 
 const app = express();
 const server = http.createServer(app);
@@ -33,11 +33,11 @@ io.on('connection', socket => {
   // ----- host -----
   socket.on('host:create', (_, cb) => {
     const code = makeCode();
-    const game = new Game(code, board, state => io.to(code).emit('state', state));
+    const game = new Game(code, boards.defaultBoard, state => io.to(code).emit('state', state));
     games.set(code, game);
     socket.join(code);
     socket.data = { code, role: 'host' };
-    ack(cb)({ ok: true, code, hostKey: game.hostKey, board, spaceTypes: SPACE_META, items: ITEMS });
+    ack(cb)({ ok: true, code, hostKey: game.hostKey, boards: boards.list, spaceTypes: SPACE_META, items: ITEMS });
     game.broadcast();
   });
 
@@ -46,13 +46,22 @@ io.on('connection', socket => {
     if (!game || game.hostKey !== hostKey) return ack(cb)({ ok: false });
     socket.join(game.code);
     socket.data = { code: game.code, role: 'host' };
-    ack(cb)({ ok: true, code: game.code, hostKey, board, spaceTypes: SPACE_META, items: ITEMS });
+    ack(cb)({ ok: true, code: game.code, hostKey, boards: boards.list, spaceTypes: SPACE_META, items: ITEMS });
     game.broadcast();
   });
 
   socket.on('host:start', ({ maxRounds } = {}) => {
     const game = hostGame(socket);
     if (game) game.start({ maxRounds });
+  });
+
+  socket.on('host:setBoard', ({ boardId } = {}) => {
+    const game = hostGame(socket);
+    const board = boards.byId[boardId];
+    if (game && board && game.phase === 'LOBBY') {
+      game.setBoard(board);
+      game.broadcast();
+    }
   });
 
   socket.on('host:restart', () => {

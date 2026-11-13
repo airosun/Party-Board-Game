@@ -3,6 +3,7 @@
 
 const TOKEN_OFFSETS = [[-15, -15], [15, -15], [-15, 15], [15, 15]];
 const hex = c => Phaser.Display.Color.HexStringToColor(c).color;
+const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 class BoardScene extends Phaser.Scene {
   constructor() {
@@ -27,11 +28,12 @@ class BoardScene extends Phaser.Scene {
 
     const bankNode = this.boardData.nodes.find(n => n.type === 'bank');
     this.bankText = bankNode && this.add.text(bankNode.x, bankNode.y + 50, '', {
-      fontSize: '18px', fontStyle: 'bold', color: '#ffb703', stroke: '#000', strokeThickness: 4,
+      fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: '#ffb703', stroke: '#000', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(6);
 
-    this.diceText = this.add.text(this.boardData.width / 2, this.boardData.height / 2, '', {
-      fontSize: '96px', fontStyle: 'bold', color: '#ffca3a', stroke: '#000', strokeThickness: 8,
+    const [dx, dy] = this.boardData.dicePos || [this.boardData.width / 2, this.boardData.height / 2];
+    this.diceText = this.add.text(dx, dy, '', {
+      fontFamily: FONT, fontSize: '96px', fontStyle: 'bold', color: '#ffca3a', stroke: '#000', strokeThickness: 8,
     }).setOrigin(0.5).setDepth(20);
 
     this.onReady?.(this);
@@ -69,7 +71,14 @@ class BoardScene extends Phaser.Scene {
       this.paintNode(n.id, n.type);
     }
 
-    this.add.text(24, 20, this.boardData.name, { fontSize: '28px', fontStyle: 'bold', color: '#ffffff' });
+    if (this.boardData.decor) {
+      for (const d of this.boardData.decor) {
+        this.add.text(d.x, d.y, d.text, { fontFamily: FONT, fontSize: `${d.size || 24}px`, fontStyle: 'bold', color: '#ffffff' })
+          .setOrigin(0.5).setAlpha(d.alpha ?? 1);
+      }
+    } else {
+      this.add.text(24, 20, this.boardData.name, { fontFamily: FONT, fontSize: '28px', fontStyle: 'bold', color: '#ffffff' });
+    }
   }
 
   // (Re)draw one space, used again when a space changes type (VS → blue)
@@ -77,7 +86,7 @@ class BoardScene extends Phaser.Scene {
     const n = this.nodes.get(id), v = this.nodeViews.get(id), meta = this.spaceTypes[type] || {};
     if (v.type === type) return;
     v.type = type;
-    const r = meta.passOnly ? 20 : 30;
+    const r = meta.passOnly ? 24 : 30;
     v.gfx.clear();
     v.gfx.fillStyle(0x000000, 0.35).fillCircle(n.x, n.y + 5, r);
     v.gfx.fillStyle(hex(meta.color || '#999999'), 1).fillCircle(n.x, n.y, r);
@@ -85,8 +94,9 @@ class BoardScene extends Phaser.Scene {
     const icon = meta.icon || '';
     const emoji = /\p{Extended_Pictographic}/u.test(icon);
     v.label.setText(icon).setStyle({
+      fontFamily: FONT,
       fontStyle: 'bold',
-      fontSize: emoji ? (meta.passOnly ? '20px' : '28px') : icon.length > 1 ? '20px' : '26px',
+      fontSize: emoji ? (meta.passOnly ? '24px' : '28px') : icon.length > 1 ? '20px' : '26px',
       color: type === 'start' ? '#14213d' : '#ffffff',
     });
     if (v.type && v.flash !== false) {
@@ -127,7 +137,7 @@ class BoardScene extends Phaser.Scene {
         const circle = this.add.circle(0, 0, 15, Phaser.Display.Color.HexStringToColor(p.color).color)
           .setStrokeStyle(4, 0xffffff);
         const initial = this.add.text(0, 0, p.name[0].toUpperCase(), {
-          fontSize: '16px', fontStyle: 'bold', color: '#14213d',
+          fontFamily: FONT, fontSize: '16px', fontStyle: 'bold', color: '#14213d',
         }).setOrigin(0.5);
         const container = this.add.container(pos.x, pos.y, [circle, initial]).setDepth(10);
         t = { container, nodeId: p.pos };

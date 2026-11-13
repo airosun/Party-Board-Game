@@ -6,6 +6,9 @@ let scene = null;
 let latest = null;
 let ITEMS = {};
 let SPACE_TYPES = {};
+let BOARDS = {};
+let phaserGame = null;
+let shownBoardId = null;
 
 $('join-url').textContent = `${location.host}/play.html`;
 
@@ -21,14 +24,27 @@ function createRoom() {
   socket.emit('host:create', {}, onRoom);
 }
 
-function onRoom({ code, hostKey, board, spaceTypes, items }) {
+function onRoom({ code, hostKey, boards, spaceTypes, items }) {
   ITEMS = items || {};
   SPACE_TYPES = spaceTypes || {};
+  BOARDS = Object.fromEntries(boards.map(b => [b.id, b]));
+  $('board-select').innerHTML = boards.map(b =>
+    `<option value="${b.id}">${esc(b.name)} (${b.nodes.length} spaces)</option>`).join('');
   renderLegend();
   sessionStorage.setItem('partyHost', JSON.stringify({ code, hostKey }));
   $('code').textContent = code;
   $('join-url').textContent = `${location.host}/play.html?code=${code}`;
-  if (!scene) startPhaser(board, spaceTypes);
+  if (latest) showBoard(latest.boardId);
+}
+
+// (Re)build the Phaser board whenever the room's board changes
+function showBoard(boardId) {
+  const board = BOARDS[boardId];
+  if (!board || boardId === shownBoardId) return;
+  shownBoardId = boardId;
+  scene = null;
+  if (phaserGame) phaserGame.destroy(true);
+  phaserGame = startPhaser(board, SPACE_TYPES);
 }
 
 // After a server restart the room is gone, so make a fresh one
@@ -42,7 +58,7 @@ socket.on('connect', () => {
 });
 
 function startPhaser(board, spaceTypes) {
-  new Phaser.Game({
+  return new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'board',
     width: board.width,
@@ -68,10 +84,12 @@ function startPhaser(board, spaceTypes) {
 // ----- controls -----
 $('start-btn').onclick = () => socket.emit('host:start', { maxRounds: Number($('rounds').value) });
 $('restart-btn').onclick = () => socket.emit('host:restart');
+$('board-select').onchange = e => socket.emit('host:setBoard', { boardId: e.target.value });
 
 // ----- render -----
 socket.on('state', s => {
   latest = s;
+  showBoard(s.boardId);
   if (scene) scene.applyState(s);
   renderSidebar(s);
   renderOverlay(s);
@@ -84,6 +102,7 @@ const esc = str => String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&
 function renderSidebar(s) {
   const lobby = s.phase === 'LOBBY';
   $('lobby-controls').classList.toggle('hidden', !lobby);
+  if ($('board-select').value !== s.boardId) $('board-select').value = s.boardId;
   $('restart-btn').classList.toggle('hidden', s.phase !== 'GAME_OVER');
   $('start-btn').disabled = s.players.length < 1;
   $('start-btn').textContent = s.players.length ? `Start game (${s.players.length} player${s.players.length > 1 ? 's' : ''})` : 'Waiting for players…';
@@ -93,6 +112,8 @@ function renderSidebar(s) {
     LOBBY: 'Join on your phone!',
     ROLL: `Turn ${s.round}/${s.maxRounds}: <span style="color:${colorOf(s, s.turnPlayerId)}">${turnName}</span>, roll!`,
     ITEM: `${turnName} is using an item…`,
+    ITEM_TARGET: `🐌 ${turnName} is picking a Bad Dice victim…`,
+    BANDIT: `🦹 ${turnName} is meeting the Bandit…`,
     SHOP: `🛒 ${turnName} is shopping…`,
     CUSTOM_DICE: `🎯 ${turnName} is picking a number…`,
     ROULETTE: `${turnName}'s roulette…`,
@@ -114,7 +135,8 @@ function renderSidebar(s) {
     <div class="player-card ${p.id === s.turnPlayerId ? 'active' : ''} ${p.connected ? '' : 'offline'}">
       <span class="dot" style="background:${p.color}"></span>
       <span>${esc(p.name)}${p.connected ? '' : ' (offline)'}
-        <span class="items">${(p.items || []).map(id => ITEMS[id]?.icon ?? '').join(' ')}</span></span>
+        <span class="items">${(p.items || []).map(id => ITEMS[id]?.icon ?? '').join(' ')}</span>
+        ${p.badDice ? '<span class="cursed" title="Bad Dice: rolls 1–3 next turn">🐌 1–3</span>' : ''}</span>
       ${lobby ? '<span></span><span></span>' : `<span class="stat">⭐ ${p.stars}</span><span class="stat">🪙 ${p.coins}</span>`}
     </div>`).join('');
 

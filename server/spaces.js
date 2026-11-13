@@ -8,11 +8,14 @@
 //
 // Hooks are async so they can ask the player something (game.ask) or spin a roulette.
 
-const { ITEMS, MAX_ITEMS, CHEAPEST } = require('./items');
+const { ITEMS, MAX_ITEMS } = require('./items');
 
 const BLUE_COINS = 3;
 const RED_COINS = 3;
 const BANK_FEE = 5;
+const STAR_STEAL_COST = 50;
+const COIN_STEAL_MIN = 8;
+const COIN_STEAL_MAX = 20;
 
 const pickRandom = arr => arr[Math.floor(Math.random() * arr.length)];
 
@@ -45,20 +48,30 @@ const SPACES = {
     name: 'Item Shop', color: '#06d6a0', icon: '🛒', passOnly: true,
     desc: 'Walk past to buy one item (doesn\'t use a step)',
     async onPass(game, p) {
+      const stock = Object.entries(ITEMS);
+      const unlocked = stock.filter(([id]) => game.itemUnlocked(id));
+      const cheapest = Math.min(...unlocked.map(([, it]) => it.price));
       if (p.items.length >= MAX_ITEMS) {
         game.addLog(`🛒 ${p.name}'s bag is full (${MAX_ITEMS} items).`);
         return game.beat();
       }
-      if (p.coins < CHEAPEST) {
-        game.addLog(`🛒 ${p.name} can't afford anything (cheapest is ${CHEAPEST} coins).`);
+      if (p.coins < cheapest) {
+        game.addLog(`🛒 ${p.name} can't afford anything (cheapest is ${cheapest} coins).`);
         return game.beat();
       }
-      const affordable = Object.entries(ITEMS).filter(([, it]) => it.price <= p.coins);
       const choice = await game.ask(p, 'SHOP', {
         kind: 'shop',
         text: `Item Shop! You have ${p.coins} coins.`,
         options: [
-          ...affordable.map(([id, it]) => ({ value: id, label: `${it.icon} ${it.name}: ${it.price}🪙`, desc: it.desc })),
+          ...stock.map(([id, it]) => {
+            const locked = !game.itemUnlocked(id);
+            return {
+              value: id,
+              label: `${it.icon} ${it.name}: ${it.price}🪙`,
+              desc: locked ? `🔒 In stock from turn ${game.rareUnlockRound()}` : it.desc,
+              disabled: locked || it.price > p.coins,
+            };
+          }),
           { value: 'leave', label: 'Just looking' },
         ],
         defaultValue: 'leave',
@@ -85,7 +98,7 @@ const SPACES = {
           label: 'Free item', weight: 2,
           run: () => {
             if (p.items.length >= MAX_ITEMS) { game.give(p, 10); return `${p.name}'s bag is full: +10 coins instead`; }
-            const id = pickRandom(Object.keys(ITEMS));
+            const id = pickRandom(Object.keys(ITEMS).filter(i => game.itemUnlocked(i)));
             p.items.push(id);
             return `${p.name} got a free ${ITEMS[id].name}!`;
           },
@@ -172,8 +185,22 @@ const SPACES = {
     },
   },
 
+  event: {
+    // Placeholder: effect still to be designed. Landing here does nothing yet.
+    name: '? Space', color: '#8338ec', icon: '?', desc: 'Mystery space (effect coming soon)',
+    async onLand(game, p) {
+      game.addLog(`❓ ${p.name} landed on a ? Space… nothing happens (yet).`);
+    },
+  },
+
+  bandit: {
+    name: 'Bandit', color: '#9d4edd', icon: '🦹', passOnly: true,
+    desc: `Walk past to steal ${COIN_STEAL_MIN}–${COIN_STEAL_MAX} coins (free) or a Star (${STAR_STEAL_COST} coins)`,
+    async onPass(game, p) { await banditEncounter(game, p); },
+  },
+
   chance: {
-    name: 'Chance Space', color: '#8338ec', icon: '?!', desc: 'Two random players trade something',
+    name: 'Chance Space', color: '#ff006e', icon: '?!', desc: 'Two random players trade something',
     async onLand(game, p) {
       if (game.players.length < 2) {
         game.give(p, 5);
@@ -192,9 +219,62 @@ const SPACES = {
   },
 };
 
+// The Bandit: used by Bandit spaces and the Bandit Call item.
+// Must pick coins or a Star (Star is greyed out without enough coins or if nobody has one),
+// then pick a victim or let it be random.
+async function banditEncounter(game, p) {
+  const others = game.players.filter(o => o !== p);
+  if (!others.length) {
+    game.addLog(`🦹 The Bandit has nobody to rob for ${p.name}.`);
+    return game.beat();
+  }
+  const starTargets = others.filter(o => o.stars > 0);
+  const canStar = p.coins >= STAR_STEAL_COST && starTargets.length > 0;
+  const mode = await game.ask(p, 'BANDIT', {
+    kind: 'bandit',
+    text: '🦹 The Bandit! What should I steal?',
+    options: [
+      { value: 'coins', label: '💰 Steal coins (free)', desc: `Take ${COIN_STEAL_MIN}–${COIN_STEAL_MAX} coins from someone` },
+      {
+        value: 'star', label: `⭐ Steal a Star (${STAR_STEAL_COST} coins)`, disabled: !canStar,
+        desc: p.coins < STAR_STEAL_COST ? `You need ${STAR_STEAL_COST} coins` : !starTargets.length ? 'Nobody has a Star yet' : 'Take a Star from someone',
+      },
+    ],
+    defaultValue: 'coins',
+  });
+
+  const pool = mode === 'star' ? starTargets : others;
+  const pick = await game.ask(p, 'BANDIT', {
+    kind: 'banditTarget',
+    text: mode === 'star' ? 'Steal a Star from…' : 'Steal coins from…',
+    options: [
+      ...pool.map(o => ({ value: o.id, label: `${o.name}  ⭐${o.stars} 🪙${o.coins}` })),
+      { value: 'random', label: '🎲 Random player' },
+    ],
+    defaultValue: 'random',
+  });
+  const victim = pick === 'random' ? pickRandom(pool) : pool.find(o => o.id === pick);
+
+  if (mode === 'star') {
+    p.coins -= STAR_STEAL_COST;
+    victim.stars--;
+    p.stars++;
+    game.addLog(`🦹⭐ ${p.name} paid ${STAR_STEAL_COST} coins and stole a STAR from ${victim.name}!`);
+  } else {
+    const roll = COIN_STEAL_MIN + Math.floor(Math.random() * (COIN_STEAL_MAX - COIN_STEAL_MIN + 1));
+    const amt = Math.min(roll, victim.coins);
+    game.give(victim, -amt);
+    game.give(p, amt);
+    game.addLog(amt === 0
+      ? `🦹 ${p.name} tried to rob ${victim.name}, but they're broke!`
+      : `🦹 ${p.name} stole ${amt} coins from ${victim.name}${amt < roll ? ' (all they had!)' : ''}`);
+  }
+  return game.beat();
+}
+
 // Display info only (sent to screens)
 const SPACE_META = Object.fromEntries(Object.entries(SPACES).map(([id, s]) => [id, {
   name: s.name, color: s.color, icon: s.icon, desc: s.desc, passOnly: !!s.passOnly,
 }]));
 
-module.exports = { SPACES, SPACE_META };
+module.exports = { SPACES, SPACE_META, banditEncounter };

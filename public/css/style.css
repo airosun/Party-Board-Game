@@ -100,3 +100,5 @@ input, select {
 .phone .num-grid button { padding: 18px 0; font-size: 1.4rem; }
 .phone .option-desc { display: block; font-size: .8rem; font-weight: 400; opacity: .75; margin-top: 4px; }
 .phone .bag { text-align: center; opacity: .85; }
+.player-card .cursed { font-size: .75rem; background: #5c3d00; color: #ffca3a; padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
+.phone button:disabled { filter: grayscale(1); }

@@ -72,7 +72,9 @@ function statusText(s, myTurn) {
     case 'JUNCTION':
     case 'STAR_PROMPT':
     case 'SHOP':
-    case 'CUSTOM_DICE': return myTurn ? esc(s.prompt.text) : `${turnName} is deciding…`;
+    case 'CUSTOM_DICE':
+    case 'BANDIT':
+    case 'ITEM_TARGET': return myTurn && s.prompt ? esc(s.prompt.text) : `${turnName} is deciding…`;
     case 'ITEM': return `${myTurn ? 'You' : turnName} used an item!`;
     case 'ROULETTE': return `${esc(s.roulette.title)}${s.roulette.resultText ? `<br><b>${esc(s.roulette.resultText)}</b>` : ''}`;
     case 'MINIGAME_INTRO': return `${s.minigame.banner ? `${esc(s.minigame.banner)}<br>` : ''}<b>${esc(s.minigame.name)}</b><br>${esc(s.minigame.instructions)}`;
@@ -117,10 +119,14 @@ function buildActions(s, myTurn, myPrompt, self) {
     })));
     a.append(grid);
   } else if (myPrompt) {
-    s.prompt.options.forEach(o => a.append(btn(o.label, () => {
-      a.querySelectorAll('button').forEach(x => { x.disabled = true; });
-      send({ type: 'choose', value: o.value });
-    }, o.desc)));
+    s.prompt.options.forEach(o => {
+      const b = btn(o.label, () => {
+        a.querySelectorAll('button').forEach(x => { x.disabled = true; });
+        send({ type: 'choose', value: o.value });
+      }, o.desc);
+      b.disabled = !!o.disabled; // e.g. can't afford it / locked
+      a.append(b);
+    });
   } else if (s.phase === 'MINIGAME' && s.minigame.controls === 'mash') {
     const b = document.createElement('button');
     b.className = 'mash-btn';
