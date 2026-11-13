@@ -3,11 +3,11 @@
  "name": "Coin Cove",
  "width": 1280,
  "height": 720,
- "startNodeId": 0,
+ "startNodeId": 27,
  "nodes": [
   {
    "id": 0,
-   "type": "start",
+   "type": "blue",
    "x": 200,
    "y": 150,
    "next": [
@@ -252,6 +252,16 @@
    "next": [
     14
    ]
+  },
+  {
+   "id": 27,
+   "type": "start",
+   "x": 80,
+   "y": 150,
+   "next": [
+    0
+   ],
+   "noStar": true
   }
  ],
  "description": "Small board (27 spaces), good for quick games"

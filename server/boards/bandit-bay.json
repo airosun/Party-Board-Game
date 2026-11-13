@@ -4,7 +4,7 @@
  "description": "Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the locked Bandit's Hideout",
  "width": 1920,
  "height": 1080,
- "startNodeId": 0,
+ "startNodeId": 65,
  "dicePos": [
   1300,
   760
@@ -70,7 +70,7 @@
  "nodes": [
   {
    "id": 0,
-   "type": "start",
+   "type": "blue",
    "x": 220,
    "y": 170,
    "next": [
@@ -687,6 +687,16 @@
    "next": [
     29
    ]
+  },
+  {
+   "id": 65,
+   "type": "start",
+   "x": 80,
+   "y": 170,
+   "next": [
+    0
+   ],
+   "noStar": true
   }
  ]
 }

@@ -29,7 +29,7 @@ const types = s => s.trim().split(/\s+/);
 // Main loop, clockwise from START
 const mainTypes = [
   // top: left → right (13)
-  ...types('start blue blue event shop blue blue lucky red item bank event blue'),
+  ...types('blue blue blue event shop blue blue lucky red item bank event blue'),
   // right: top → bottom (6)
   ...types('chance blue vs blue red blue'),
   // bottom: right → left (13)
@@ -87,13 +87,17 @@ add(between([[nodes[25].x, nodes[25].y], [985, 1015], [600, 1015], [nodes[29].x,
   types('blue event red item blue'),
   25, 29, 'Main road ⬅️', 'Back Alley ↙️ (longer)');
 
+// START sits off the loop, just left of the first space. You leave it on turn 1 and never come back.
+const startId = nodes.length;
+nodes.push({ id: startId, type: 'start', x: 80, y: T, next: [0], noStar: true });
+
 const board = {
   id: 'bandit-bay',
   name: 'Bandit Bay',
   description: 'Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the locked Bandit\'s Hideout',
   width: 1920,
   height: 1080,
-  startNodeId: 0,
+  startNodeId: startId,
   dicePos: [1300, 760],
   // Text drawn on the board (decoration only)
   decor: [

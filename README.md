@@ -24,7 +24,7 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 | | |
 |---|---|
 | Lobby | Room codes, up to 4 players, auto-reconnect when a phone locks/refreshes, host survives a page refresh |
-| Boards | **Bandit Bay** (65 spaces, 5 forks incl. a locked gate, default) and **Coin Cove** (27 spaces). Host picks in the lobby |
+| Boards | **Bandit Bay** (65 spaces + Start, 5 forks incl. a locked gate, default) and **Coin Cove** (27 spaces). Host picks in the lobby |
 | Items | Bought at Item Shops, used on your phone before rolling (one per turn, bag holds 3) |
 | Star | Buy it for 20 coins as you **pass** it, then it moves somewhere new |
 | Turn loop | Roll 1–10 → hop space by space → land effect → next player |
