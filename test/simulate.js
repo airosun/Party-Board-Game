@@ -12,7 +12,11 @@ host.emit('host:create', {}, async ({ code }) => {
     const s = io(URL);
     await new Promise(r => s.emit('player:join', { code, name }, res => { s.pid = res.playerId; r(); }));
     s.on('state', st => {
-      if (st.phase === 'ROLL' && st.turnPlayerId === s.pid) s.emit('player:action', { type: 'roll' });
+      if (st.phase === 'ROLL' && st.turnPlayerId === s.pid) {
+        const me = st.players.find(p => p.id === s.pid);
+        if (me.items.length && !st.turnItemUsed && Math.random() < 0.5) s.emit('player:action', { type: 'useItem', index: 0 });
+        else s.emit('player:action', { type: 'roll' });
+      }
       if (st.prompt?.playerId === s.pid) {
         const o = st.prompt.options[Math.floor(Math.random() * st.prompt.options.length)];
         s.emit('player:action', { type: 'choose', value: o.value });
@@ -30,9 +34,9 @@ host.emit('host:create', {}, async ({ code }) => {
     if (l !== lastLog) { console.log(`[${st.phase}] ${l}`); lastLog = l; }
     if (st.phase === 'GAME_OVER') {
       console.log('FINAL', JSON.stringify(st.final, null, 1));
-      process.exit(0);
+      console.log('OK'); process.exit(0);
     }
   });
-  host.emit('host:start', { maxRounds: 5 });
+  host.emit('host:start', { maxRounds: 10 });
 });
 setTimeout(() => { console.error('TIMEOUT'); process.exit(1); }, 60000);

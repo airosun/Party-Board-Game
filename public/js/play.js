@@ -7,6 +7,7 @@ const esc = str => String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&
 let me = JSON.parse(localStorage.getItem('partyPlayer') || 'null'); // { code, playerId, name }
 let viewKey = null;   // only rebuild the buttons when this changes (keeps mash taps smooth)
 let reaction = null;  // Quick Draw local timing
+let ITEMS = {};       // item catalog from the server
 
 // ----- joining -----
 const params = new URLSearchParams(location.search);
@@ -23,6 +24,7 @@ function join(code, name, playerId) {
       $('join-error').textContent = res.error;
       return;
     }
+    ITEMS = res.items || {};
     me = { code: res.code, playerId: res.playerId, name };
     localStorage.setItem('partyPlayer', JSON.stringify(me));
     $('join-view').classList.add('hidden');
@@ -49,14 +51,16 @@ socket.on('state', s => {
 
   const myTurn = s.turnPlayerId === me.playerId;
   const myPrompt = s.prompt?.playerId === me.playerId;
-  const key = [s.phase, myTurn, myPrompt && s.prompt.kind, s.minigame?.id].join('|');
+  const key = [s.phase, myTurn, myPrompt && s.prompt.kind, s.minigame?.id, self.items.join(','), s.turnItemUsed].join('|');
 
   $('status').innerHTML = statusText(s, myTurn);
   if (key !== viewKey) {
     viewKey = key;
-    buildActions(s, myTurn, myPrompt);
+    buildActions(s, myTurn, myPrompt, self);
   }
   updateLive(s);
+  const bag = self.items.map(id => `${ITEMS[id]?.icon ?? ''} ${ITEMS[id]?.name ?? id}`).join(' · ');
+  $('bag').textContent = s.phase === 'LOBBY' || !bag ? '' : `Bag: ${bag}`;
 });
 
 function statusText(s, myTurn) {
@@ -66,8 +70,12 @@ function statusText(s, myTurn) {
     case 'ROLL': return myTurn ? 'Your turn!' : `${turnName}'s turn`;
     case 'MOVING': return s.dice ? `${myTurn ? 'You' : turnName} rolled ${s.dice.value}` : '';
     case 'JUNCTION':
-    case 'STAR_PROMPT': return myTurn ? esc(s.prompt.text) : `${turnName} is deciding…`;
-    case 'MINIGAME_INTRO': return `<b>${esc(s.minigame.name)}</b><br>${esc(s.minigame.instructions)}`;
+    case 'STAR_PROMPT':
+    case 'SHOP':
+    case 'CUSTOM_DICE': return myTurn ? esc(s.prompt.text) : `${turnName} is deciding…`;
+    case 'ITEM': return `${myTurn ? 'You' : turnName} used an item!`;
+    case 'ROULETTE': return `${esc(s.roulette.title)}${s.roulette.resultText ? `<br><b>${esc(s.roulette.resultText)}</b>` : ''}`;
+    case 'MINIGAME_INTRO': return `${s.minigame.banner ? `${esc(s.minigame.banner)}<br>` : ''}<b>${esc(s.minigame.name)}</b><br>${esc(s.minigame.instructions)}`;
     case 'MINIGAME': return `<b>${esc(s.minigame.name)}</b> · ${Math.ceil(s.minigame.timeLeftMs / 1000)}s`;
     case 'MINIGAME_RESULTS': {
       const r = s.minigame.results.find(x => x.playerId === me.playerId);
@@ -81,15 +89,38 @@ function statusText(s, myTurn) {
   return '';
 }
 
-function buildActions(s, myTurn, myPrompt) {
+function buildActions(s, myTurn, myPrompt, self) {
   const a = $('actions');
   a.innerHTML = '';
   reaction = null;
 
   if (s.phase === 'ROLL' && myTurn) {
     a.append(btn('🎲 Roll!', () => send({ type: 'roll' })));
+    if (self.items.length && !s.turnItemUsed) {
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      self.items.forEach((id, index) => {
+        const it = ITEMS[id] || { name: id, icon: '', desc: '' };
+        const solo = id === 'warpBlock' && s.players.length < 2;
+        const b = btn(`${it.icon} Use ${it.name}`, () => send({ type: 'useItem', index }), it.desc);
+        b.disabled = solo;
+        row.append(b);
+      });
+      a.append(row);
+    }
+  } else if (myPrompt && s.prompt.kind === 'customDice') {
+    const grid = document.createElement('div');
+    grid.className = 'num-grid';
+    s.prompt.options.forEach(o => grid.append(btn(o.label, () => {
+      grid.querySelectorAll('button').forEach(x => { x.disabled = true; });
+      send({ type: 'choose', value: o.value });
+    })));
+    a.append(grid);
   } else if (myPrompt) {
-    s.prompt.options.forEach(o => a.append(btn(o.label, () => send({ type: 'choose', value: o.value }))));
+    s.prompt.options.forEach(o => a.append(btn(o.label, () => {
+      a.querySelectorAll('button').forEach(x => { x.disabled = true; });
+      send({ type: 'choose', value: o.value });
+    }, o.desc)));
   } else if (s.phase === 'MINIGAME' && s.minigame.controls === 'mash') {
     const b = document.createElement('button');
     b.className = 'mash-btn';
@@ -129,9 +160,15 @@ function updateLive(s) {
   }, s.minigame.live.goInMs);
 }
 
-function btn(label, onClick) {
+function btn(label, onClick, desc) {
   const b = document.createElement('button');
   b.textContent = label;
+  if (desc) {
+    const d = document.createElement('span');
+    d.className = 'option-desc';
+    d.textContent = desc;
+    b.append(d);
+  }
   b.onclick = () => { b.disabled = true; onClick(); }; // prevent double-sends
   return b;
 }

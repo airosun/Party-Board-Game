@@ -5,7 +5,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const { Game } = require('./game');
+const { Game, SPACE_META, ITEMS } = require('./game');
 const board = require('./boards/classic.json');
 
 const app = express();
@@ -37,7 +37,7 @@ io.on('connection', socket => {
     games.set(code, game);
     socket.join(code);
     socket.data = { code, role: 'host' };
-    ack(cb)({ ok: true, code, hostKey: game.hostKey, board });
+    ack(cb)({ ok: true, code, hostKey: game.hostKey, board, spaceTypes: SPACE_META, items: ITEMS });
     game.broadcast();
   });
 
@@ -46,7 +46,7 @@ io.on('connection', socket => {
     if (!game || game.hostKey !== hostKey) return ack(cb)({ ok: false });
     socket.join(game.code);
     socket.data = { code: game.code, role: 'host' };
-    ack(cb)({ ok: true, code: game.code, hostKey, board });
+    ack(cb)({ ok: true, code: game.code, hostKey, board, spaceTypes: SPACE_META, items: ITEMS });
     game.broadcast();
   });
 
@@ -68,7 +68,7 @@ io.on('connection', socket => {
     if (!res.ok) return ack(cb)(res);
     socket.join(game.code);
     socket.data = { code: game.code, role: 'player', playerId: res.playerId };
-    ack(cb)({ ok: true, code: game.code, playerId: res.playerId });
+    ack(cb)({ ok: true, code: game.code, playerId: res.playerId, items: ITEMS });
     game.broadcast();
   });
 

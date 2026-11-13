@@ -4,6 +4,8 @@ const socket = io();
 const $ = id => document.getElementById(id);
 let scene = null;
 let latest = null;
+let ITEMS = {};
+let SPACE_TYPES = {};
 
 $('join-url').textContent = `${location.host}/play.html`;
 
@@ -19,11 +21,14 @@ function createRoom() {
   socket.emit('host:create', {}, onRoom);
 }
 
-function onRoom({ code, hostKey, board }) {
+function onRoom({ code, hostKey, board, spaceTypes, items }) {
+  ITEMS = items || {};
+  SPACE_TYPES = spaceTypes || {};
+  renderLegend();
   sessionStorage.setItem('partyHost', JSON.stringify({ code, hostKey }));
   $('code').textContent = code;
   $('join-url').textContent = `${location.host}/play.html?code=${code}`;
-  if (!scene) startPhaser(board);
+  if (!scene) startPhaser(board, spaceTypes);
 }
 
 // After a server restart the room is gone, so make a fresh one
@@ -36,7 +41,7 @@ socket.on('connect', () => {
   }
 });
 
-function startPhaser(board) {
+function startPhaser(board, spaceTypes) {
   new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'board',
@@ -49,6 +54,7 @@ function startPhaser(board) {
       postBoot: game => {
         game.scene.add('board', BoardScene, true, {
           board,
+          spaceTypes,
           onReady: s => {
             scene = s;
             if (latest) scene.applyState(latest);
@@ -86,6 +92,10 @@ function renderSidebar(s) {
   $('turn-banner').innerHTML = {
     LOBBY: 'Join on your phone!',
     ROLL: `Turn ${s.round}/${s.maxRounds}: <span style="color:${colorOf(s, s.turnPlayerId)}">${turnName}</span>, roll!`,
+    ITEM: `${turnName} is using an item…`,
+    SHOP: `🛒 ${turnName} is shopping…`,
+    CUSTOM_DICE: `🎯 ${turnName} is picking a number…`,
+    ROULETTE: `${turnName}'s roulette…`,
     MOVING: `${turnName} is moving…`,
     JUNCTION: `${turnName} is choosing a path…`,
     STAR_PROMPT: `${turnName}: buy a Star?`,
@@ -94,13 +104,17 @@ function renderSidebar(s) {
     MINIGAME_RESULTS: 'Minigame results',
     GAME_OVER: 'Game over!',
   }[s.phase] || '';
+  if (s.finalStretch && !['LOBBY', 'GAME_OVER'].includes(s.phase)) {
+    $('turn-banner').innerHTML += '<div class="final-stretch">🔥 Final 5 turns: blue &amp; red doubled</div>';
+  }
 
   // Standings order once the game is running
   const players = lobby ? s.players : [...s.players].sort((a, b) => b.stars - a.stars || b.coins - a.coins);
   $('players').innerHTML = players.map(p => `
     <div class="player-card ${p.id === s.turnPlayerId ? 'active' : ''} ${p.connected ? '' : 'offline'}">
       <span class="dot" style="background:${p.color}"></span>
-      <span>${esc(p.name)}${p.connected ? '' : ' (offline)'}</span>
+      <span>${esc(p.name)}${p.connected ? '' : ' (offline)'}
+        <span class="items">${(p.items || []).map(id => ITEMS[id]?.icon ?? '').join(' ')}</span></span>
       ${lobby ? '<span></span><span></span>' : `<span class="stat">⭐ ${p.stars}</span><span class="stat">🪙 ${p.coins}</span>`}
     </div>`).join('');
 
@@ -111,9 +125,15 @@ function renderOverlay(s) {
   const el = $('overlay'), c = $('overlay-content');
   const mg = s.minigame;
 
-  if (s.phase === 'MINIGAME_INTRO' && mg) {
+  if (s.phase !== 'ROULETTE') stopRoulette();
+
+  if (s.phase === 'ROULETTE' && s.roulette) {
     el.classList.remove('hidden');
-    c.innerHTML = `<h2>${esc(mg.name)}</h2><div class="big">${esc(mg.instructions)}</div><div class="big">Get ready…</div>`;
+    renderRoulette(s.roulette);
+  } else if (s.phase === 'MINIGAME_INTRO' && mg) {
+    el.classList.remove('hidden');
+    c.innerHTML = `${mg.banner ? `<div class="banner">${esc(mg.banner)}</div>` : ''}
+      <h2>${esc(mg.name)}</h2><div class="big">${esc(mg.instructions)}</div><div class="big">Get ready…</div>`;
   } else if (s.phase === 'MINIGAME' && mg) {
     el.classList.remove('hidden');
     c.innerHTML = `<h2>${esc(mg.name)}</h2>
@@ -167,4 +187,51 @@ function renderLive(s, mg) {
       }).join('')}</div>`;
   }
   return '';
+}
+
+// ----- roulette (spins through the options, then settles on the server's pick) -----
+let spin = null; // { id, timer }
+
+function renderRoulette(r) {
+  const c = $('overlay-content');
+  if (spin?.id !== r.id) {
+    stopRoulette();
+    c.innerHTML = `<h2 style="font-size:2.2rem">${esc(r.title)}</h2>
+      <div class="roulette">${r.labels.map((l, i) => `<div class="slot" data-i="${i}">${esc(l)}</div>`).join('')}</div>
+      <div class="big roulette-result"></div>`;
+    const slots = [...c.querySelectorAll('.slot')];
+    let i = 0, delay = 70;
+    const total = slots.length * 2 + r.resultIndex; // two laps, ending on the result
+    let steps = 0;
+    const tick = () => {
+      slots.forEach(s => s.classList.remove('lit'));
+      slots[i % slots.length].classList.add('lit');
+      if (steps++ >= total) {
+        slots[i % slots.length].classList.add('picked');
+        spin.done = true;
+        if (spin.text) c.querySelector('.roulette-result').textContent = spin.text;
+        return;
+      }
+      i++; delay *= 1.06;
+      spin.timer = setTimeout(tick, delay);
+    };
+    spin = { id: r.id, timer: null, done: false, text: null };
+    tick();
+  }
+  // Only reveal the result once the wheel has stopped on it
+  if (r.resultText) {
+    spin.text = r.resultText;
+    if (spin.done) c.querySelector('.roulette-result').textContent = r.resultText;
+  }
+}
+
+function stopRoulette() {
+  if (spin) clearTimeout(spin.timer);
+  spin = null;
+}
+
+function renderLegend() {
+  $('legend').innerHTML = Object.values(SPACE_TYPES).filter(t => t.icon !== 'GO').map(t => `
+    <div><span class="legend-dot" style="background:${t.color}">${esc(t.icon)}</span>
+      <b>${esc(t.name)}</b>: ${esc(t.desc)}</div>`).join('');
 }

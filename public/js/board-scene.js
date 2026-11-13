@@ -1,17 +1,19 @@
 // Phaser scene that draws the board graph and animates player tokens.
 // It only renders: all game logic lives on the server.
 
-const SPACE_COLORS = { blue: 0x1982c4, red: 0xe63946, event: 0x8338ec, start: 0xf4f1de };
 const TOKEN_OFFSETS = [[-15, -15], [15, -15], [-15, 15], [15, 15]];
+const hex = c => Phaser.Display.Color.HexStringToColor(c).color;
 
 class BoardScene extends Phaser.Scene {
   constructor() {
     super('board');
-    this.tokens = new Map(); // playerId -> { container, nodeId }
+    this.tokens = new Map();    // playerId -> { container, nodeId }
+    this.nodeViews = new Map(); // nodeId -> { gfx, label, type }
   }
 
   init(data) {
     this.boardData = data.board;
+    this.spaceTypes = data.spaceTypes; // from server/spaces.js (name, color, icon, passOnly)
     this.onReady = data.onReady;
     this.nodes = new Map(this.boardData.nodes.map(n => [n.id, n]));
   }
@@ -22,6 +24,11 @@ class BoardScene extends Phaser.Scene {
 
     this.star = this.add.text(0, 0, '⭐', { fontSize: '44px' }).setOrigin(0.5).setDepth(5).setVisible(false);
     this.tweens.add({ targets: this.star, scale: 1.15, yoyo: true, repeat: -1, duration: 600 });
+
+    const bankNode = this.boardData.nodes.find(n => n.type === 'bank');
+    this.bankText = bankNode && this.add.text(bankNode.x, bankNode.y + 50, '', {
+      fontSize: '18px', fontStyle: 'bold', color: '#ffb703', stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(6);
 
     this.diceText = this.add.text(this.boardData.width / 2, this.boardData.height / 2, '', {
       fontSize: '96px', fontStyle: 'bold', color: '#ffca3a', stroke: '#000', strokeThickness: 8,
@@ -45,6 +52,7 @@ class BoardScene extends Phaser.Scene {
     for (const n of this.boardData.nodes) {
       for (const id of n.next) {
         const m = this.nodes.get(id);
+        if (this.spaceTypes[m.type]?.passOnly || this.spaceTypes[n.type]?.passOnly) continue; // too tight for arrows
         const a = Math.atan2(m.y - n.y, m.x - n.x);
         const cx = (n.x + m.x) / 2, cy = (n.y + m.y) / 2, s = 9;
         g.fillTriangle(
@@ -55,21 +63,35 @@ class BoardScene extends Phaser.Scene {
       }
     }
 
-    // Spaces
     for (const n of this.boardData.nodes) {
-      g.fillStyle(0x000000, 0.35).fillCircle(n.x, n.y + 5, 30);
-      g.fillStyle(SPACE_COLORS[n.type] ?? 0x999999, 1).fillCircle(n.x, n.y, 30);
-      g.lineStyle(4, 0xffffff, 0.85).strokeCircle(n.x, n.y, 30);
-      const label = { event: '?', start: 'GO', red: '−', blue: '+' }[n.type];
-      if (label) {
-        this.add.text(n.x, n.y, label, {
-          fontSize: n.type === 'start' ? '20px' : '26px', fontStyle: 'bold',
-          color: n.type === 'start' ? '#14213d' : '#ffffff',
-        }).setOrigin(0.5);
-      }
+      const view = { gfx: this.add.graphics(), label: this.add.text(n.x, n.y, '', { fontStyle: 'bold' }).setOrigin(0.5), type: null };
+      this.nodeViews.set(n.id, view);
+      this.paintNode(n.id, n.type);
     }
 
     this.add.text(24, 20, this.boardData.name, { fontSize: '28px', fontStyle: 'bold', color: '#ffffff' });
+  }
+
+  // (Re)draw one space, used again when a space changes type (VS → blue)
+  paintNode(id, type) {
+    const n = this.nodes.get(id), v = this.nodeViews.get(id), meta = this.spaceTypes[type] || {};
+    if (v.type === type) return;
+    v.type = type;
+    const r = meta.passOnly ? 20 : 30;
+    v.gfx.clear();
+    v.gfx.fillStyle(0x000000, 0.35).fillCircle(n.x, n.y + 5, r);
+    v.gfx.fillStyle(hex(meta.color || '#999999'), 1).fillCircle(n.x, n.y, r);
+    v.gfx.lineStyle(4, 0xffffff, 0.85).strokeCircle(n.x, n.y, r);
+    const icon = meta.icon || '';
+    const emoji = /\p{Extended_Pictographic}/u.test(icon);
+    v.label.setText(icon).setStyle({
+      fontStyle: 'bold',
+      fontSize: emoji ? (meta.passOnly ? '20px' : '28px') : icon.length > 1 ? '20px' : '26px',
+      color: type === 'start' ? '#14213d' : '#ffffff',
+    });
+    if (v.type && v.flash !== false) {
+      this.tweens.add({ targets: v.label, scale: 1.4, yoyo: true, duration: 200 });
+    }
   }
 
   tokenPos(nodeId, index) {
@@ -80,6 +102,10 @@ class BoardScene extends Phaser.Scene {
 
   // Called by host.js whenever the server sends new state
   applyState(s) {
+    // Spaces that changed type during the game
+    for (const n of this.boardData.nodes) this.paintNode(n.id, s.spaceOverrides?.[n.id] ?? n.type);
+    if (this.bankText) this.bankText.setText(s.phase === 'LOBBY' ? '' : `🏦 ${s.bank}`);
+
     // Star
     if (s.starNodeId != null && s.phase !== 'LOBBY') {
       const n = this.nodes.get(s.starNodeId);
