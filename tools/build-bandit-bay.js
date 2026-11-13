@@ -45,7 +45,9 @@ const mainPts = [
 ];
 
 const nodes = mainPts.map(([x, y], i) => ({ id: i, type: mainTypes[i], x, y, next: [(i + 1) % mainPts.length] }));
+// Add a branch path from one existing space to another. The space at fromId becomes a fork.
 const add = (pts, tps, fromId, toId, labelFrom, labelTo) => {
+  if (pts.length !== tps.length) throw new Error(`branch from ${fromId}: ${pts.length} points but ${tps.length} types`);
   const ids = pts.map((_, k) => nodes.length + k);
   pts.forEach(([x, y], k) => nodes.push({ id: ids[k], type: tps[k], x, y, next: [k < pts.length - 1 ? ids[k + 1] : toId] }));
   const from = nodes[fromId];
@@ -65,17 +67,35 @@ add(between([[dA.x, dA.y], [420, 760], [540, 540], [420, 320], [dB.x, dB.y]], 7)
   types('red event blue bandit lucky red blue'),
   33, 37, 'Main road ⬆️', "Bandit's Hideout ➡️ (longer)");
 
+// Treasure Trail: from the middle of the shortcut (the Chance space) across to the right side.
+// Avoids the shortcut's last Bad Luck space but drops you back on the main loop.
+add(between([[nodes[40].x, nodes[40].y], [nodes[16].x, nodes[16].y]], 5), types('blue lucky event blue red'),
+  40, 16, 'Keep going ⬇️ (to the Bank)', 'Treasure Trail ➡️');
+
+// Coin Cliffs: a longer, safer loop around the outside of the right side (node 14 → node 18)
+add(between([[nodes[14].x, nodes[14].y], [1815, 370], [1840, 540], [1815, 710], [nodes[18].x, nodes[18].y]], 5),
+  types('blue blue lucky blue blue'),
+  14, 18, 'Main road ⬇️ (VS + Red)', 'Coin Cliffs ↘️ (longer, safer)');
+
+// Back Alley: dips under the Bank so you skip the toll, but you can't cash it out either
+add(between([[nodes[25].x, nodes[25].y], [960, 1012], [846, 1012], [nodes[27].x, nodes[27].y]], 2),
+  types('red blue'),
+  25, 27, 'Main road ⬅️ (Bank)', 'Back Alley ↙️ (skip the Bank)');
+
 const board = {
   id: 'bandit-bay',
   name: 'Bandit Bay',
-  description: 'Big board (50 spaces) with a risky shortcut and the Bandit\'s Hideout',
+  description: 'Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the Bandit\'s Hideout',
   width: 1920,
   height: 1080,
   startNodeId: 0,
-  dicePos: [1300, 600],
+  dicePos: [1300, 760],
   // Text drawn on the board (decoration only)
   decor: [
-    { text: 'Bandit Bay', x: 1300, y: 420, size: 64, alpha: 0.25 },
+    { text: 'Bandit Bay', x: 1300, y: 360, size: 64, alpha: 0.25 },
+    { text: 'Treasure Trail', x: 1300, y: 495, size: 20, alpha: 0.5 },
+    { text: 'Coin Cliffs', x: 1835, y: 290, size: 18, alpha: 0.5 },
+    { text: 'Back Alley', x: 903, y: 1060, size: 16, alpha: 0.5 },
     { text: "◀ Bandit's Hideout", x: 680, y: 540, size: 22, alpha: 0.8 },
     { text: 'Shortcut ▼', x: 1000, y: 330, size: 20, alpha: 0.5 },
   ],

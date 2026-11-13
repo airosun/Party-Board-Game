@@ -1,21 +1,42 @@
 {
  "id": "bandit-bay",
  "name": "Bandit Bay",
- "description": "Big board (50 spaces) with a risky shortcut and the Bandit's Hideout",
+ "description": "Big board with 5 forks: risky shortcut, Treasure Trail, Coin Cliffs, Back Alley and the Bandit's Hideout",
  "width": 1920,
  "height": 1080,
  "startNodeId": 0,
  "dicePos": [
   1300,
-  600
+  760
  ],
  "decor": [
   {
    "text": "Bandit Bay",
    "x": 1300,
-   "y": 420,
+   "y": 360,
    "size": 64,
    "alpha": 0.25
+  },
+  {
+   "text": "Treasure Trail",
+   "x": 1300,
+   "y": 495,
+   "size": 20,
+   "alpha": 0.5
+  },
+  {
+   "text": "Coin Cliffs",
+   "x": 1835,
+   "y": 290,
+   "size": 18,
+   "alpha": 0.5
+  },
+  {
+   "text": "Back Alley",
+   "x": 903,
+   "y": 1060,
+   "size": 16,
+   "alpha": 0.5
   },
   {
    "text": "◀ Bandit's Hideout",
@@ -170,8 +191,13 @@
    "x": 1700,
    "y": 293,
    "next": [
-    15
-   ]
+    15,
+    55
+   ],
+   "labels": {
+    "15": "Main road ⬇️ (VS + Red)",
+    "55": "Coin Cliffs ↘️ (longer, safer)"
+   }
   },
   {
    "id": 15,
@@ -269,8 +295,13 @@
    "x": 1017,
    "y": 910,
    "next": [
-    26
-   ]
+    26,
+    60
+   ],
+   "labels": {
+    "26": "Main road ⬅️ (Bank)",
+    "60": "Back Alley ↙️ (skip the Bank)"
+   }
   },
   {
    "id": 26,
@@ -409,8 +440,13 @@
    "x": 903,
    "y": 540,
    "next": [
-    41
-   ]
+    41,
+    50
+   ],
+   "labels": {
+    "41": "Keep going ⬇️ (to the Bank)",
+    "50": "Treasure Trail ➡️"
+   }
   },
   {
    "id": 41,
@@ -491,6 +527,114 @@
    "y": 308,
    "next": [
     37
+   ]
+  },
+  {
+   "id": 50,
+   "type": "blue",
+   "x": 1036,
+   "y": 540,
+   "next": [
+    51
+   ]
+  },
+  {
+   "id": 51,
+   "type": "lucky",
+   "x": 1169,
+   "y": 540,
+   "next": [
+    52
+   ]
+  },
+  {
+   "id": 52,
+   "type": "event",
+   "x": 1302,
+   "y": 540,
+   "next": [
+    53
+   ]
+  },
+  {
+   "id": 53,
+   "type": "blue",
+   "x": 1434,
+   "y": 540,
+   "next": [
+    54
+   ]
+  },
+  {
+   "id": 54,
+   "type": "red",
+   "x": 1567,
+   "y": 540,
+   "next": [
+    16
+   ]
+  },
+  {
+   "id": 55,
+   "type": "blue",
+   "x": 1786,
+   "y": 351,
+   "next": [
+    56
+   ]
+  },
+  {
+   "id": 56,
+   "type": "blue",
+   "x": 1825,
+   "y": 438,
+   "next": [
+    57
+   ]
+  },
+  {
+   "id": 57,
+   "type": "lucky",
+   "x": 1840,
+   "y": 540,
+   "next": [
+    58
+   ]
+  },
+  {
+   "id": 58,
+   "type": "blue",
+   "x": 1825,
+   "y": 642,
+   "next": [
+    59
+   ]
+  },
+  {
+   "id": 59,
+   "type": "blue",
+   "x": 1786,
+   "y": 729,
+   "next": [
+    18
+   ]
+  },
+  {
+   "id": 60,
+   "type": "red",
+   "x": 960,
+   "y": 1011,
+   "next": [
+    61
+   ]
+  },
+  {
+   "id": 61,
+   "type": "blue",
+   "x": 846,
+   "y": 1011,
+   "next": [
+    27
    ]
   }
  ]
