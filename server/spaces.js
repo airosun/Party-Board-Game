@@ -13,6 +13,12 @@ const { ITEMS, MAX_ITEMS, dropWeight } = require('./items');
 const BLUE_COINS = 3;
 const RED_COINS = 3;
 const BANK_FEE = 5;
+
+// Space colors (several types share a color; the icon tells them apart)
+const BLUE = '#1982c4';
+const RED = '#e63946';
+const GREEN = '#2a9d4b';
+const PURPLE = '#7b2cbf';
 const STAR_STEAL_COST = 50;
 const COIN_STEAL_MIN = 8;
 const COIN_STEAL_MAX = 20;
@@ -26,7 +32,7 @@ const SPACES = {
   },
 
   blue: {
-    name: 'Blue Space', color: '#1982c4', icon: '+', desc: '+3 coins (doubled in the last 5 turns)',
+    name: 'Blue Space', color: BLUE, icon: '+', desc: '+3 coins (doubled in the last 5 turns)',
     async onLand(game, p) {
       const amt = BLUE_COINS * (game.isFinalStretch() ? 2 : 1);
       game.give(p, amt);
@@ -35,7 +41,7 @@ const SPACES = {
   },
 
   red: {
-    name: 'Red Space', color: '#e63946', icon: '−', desc: '−3 coins (doubled in the last 5 turns)',
+    name: 'Red Space', color: RED, icon: '−', desc: '−3 coins (doubled in the last 5 turns)',
     async onLand(game, p) {
       const amt = RED_COINS * (game.isFinalStretch() ? 2 : 1);
       game.give(p, -amt);
@@ -51,10 +57,6 @@ const SPACES = {
       const stock = Object.entries(ITEMS);
       const unlocked = stock.filter(([id]) => game.itemUnlocked(id));
       const cheapest = Math.min(...unlocked.map(([, it]) => it.price));
-      if (p.items.length >= MAX_ITEMS) {
-        game.addLog(`🛒 ${p.name}'s bag is full (${MAX_ITEMS} items).`);
-        return game.beat();
-      }
       if (p.coins < cheapest) {
         game.addLog(`🛒 ${p.name} can't afford anything (cheapest is ${cheapest} coins).`);
         return game.beat();
@@ -79,30 +81,29 @@ const SPACES = {
       if (choice !== 'leave') {
         const it = ITEMS[choice];
         p.coins -= it.price;
-        p.items.push(choice);
         game.addLog(`🛒 ${p.name} bought a ${it.name}!`);
+        await game.addItem(p, choice);
       }
       return game.beat();
     },
   },
 
   lucky: {
-    name: 'Lucky Space', color: '#2ec4b6', icon: '🍀', desc: 'Spin for something good',
+    name: 'Lucky Space', color: BLUE, icon: '🍀', desc: 'Spin for something good',
     async onLand(game, p) {
       const others = game.players.filter(o => o !== p);
       const leader = game.leader();
       await game.roulette(p, `🍀 ${p.name}: Lucky Space!`, [
         { label: '+10 coins', weight: 3, run: () => { game.give(p, 10); return `${p.name} got 10 coins`; } },
         { label: '+20 coins', weight: 1, run: () => { game.give(p, 20); return `${p.name} got 20 coins!`; } },
-        {
-          label: 'Free item', weight: 2,
-          run: () => {
-            if (p.items.length >= MAX_ITEMS) { game.give(p, 10); return `${p.name}'s bag is full: +10 coins instead`; }
-            const id = game.randomItem();
-            p.items.push(id);
-            return `${p.name} got a free ${ITEMS[id].name}!`;
-          },
-        },
+        (() => {
+          const id = game.randomItem();
+          return {
+            label: 'Free item', weight: 2,
+            run: () => `${p.name} got a free ${ITEMS[id].name}!`,
+            after: () => game.addItem(p, id),
+          };
+        })(),
         {
           label: 'Leader pays you 10', weight: 1, available: others.length > 0 && leader !== p,
           run: () => {
@@ -116,7 +117,7 @@ const SPACES = {
   },
 
   badluck: {
-    name: 'Super Bad Luck Space', color: '#3d0814', icon: '💀', desc: 'Spin for something terrible',
+    name: 'Super Bad Luck Space', color: RED, icon: '💀', desc: 'Spin for something terrible',
     async onLand(game, p) {
       const others = game.players.filter(o => o !== p);
       const last = game.lastPlace(p);
@@ -144,7 +145,7 @@ const SPACES = {
   },
 
   vs: {
-    name: 'VS Space', color: '#fb5607', icon: 'VS', desc: 'Everyone bets coins on a minigame. Turns blue after',
+    name: 'VS Space', color: BLUE, icon: 'VS', desc: 'Everyone bets coins on a minigame. Turns blue after',
     async onLand(game, p, nodeId) {
       let wager = 0;
       await game.roulette(p, `⚔️ ${p.name} started a VS battle! Wager:`, [5, 10, 15, 20].map(w => ({
@@ -168,7 +169,7 @@ const SPACES = {
   },
 
   bank: {
-    name: 'Bank', color: '#ffb703', icon: '🏦', desc: `Pass: pay ${BANK_FEE} coins. Land: take everything in the bank`,
+    name: 'Bank', color: GREEN, icon: '🏦', desc: `Pass: pay ${BANK_FEE} coins. Land: take everything in the bank`,
     async onPass(game, p) {
       const a = Math.min(BANK_FEE, p.coins);
       if (!a) return;
@@ -186,38 +187,39 @@ const SPACES = {
   },
 
   item: {
-    name: 'Item Space', color: '#80ed99', icon: '🎁', desc: 'Get a random item (cheaper items are more likely)',
+    name: 'Item Space', color: GREEN, icon: '🎁', desc: 'Get a random item (cheaper items are more likely)',
     async onLand(game, p) {
-      if (p.items.length >= MAX_ITEMS) {
-        game.give(p, 5);
-        game.addLog(`🎁 ${p.name}'s bag is full, so they get 5 coins instead.`);
-        return;
-      }
       const pool = Object.keys(ITEMS).filter(id => game.itemUnlocked(id));
       await game.roulette(p, `🎁 ${p.name}: Item Space!`, pool.map(id => ({
         label: `${ITEMS[id].icon} ${ITEMS[id].name}`,
         weight: dropWeight(id),
-        run: () => { p.items.push(id); return `${p.name} got a ${ITEMS[id].name}!`; },
+        run: () => `${p.name} got a ${ITEMS[id].name}!`,
+        after: () => game.addItem(p, id),
       })));
     },
   },
 
   event: {
-    // Placeholder: effect still to be designed. Landing here does nothing yet.
-    name: '? Space', color: '#8338ec', icon: '?', desc: 'Mystery space (effect coming soon)',
+    name: '? Space', color: GREEN, icon: '?', desc: 'Launches you 1–5 spaces forward (no effect where you land)',
     async onLand(game, p) {
-      game.addLog(`❓ ${p.name} landed on a ? Space… nothing happens (yet).`);
+      let n = 0;
+      await game.roulette(p, `❓ ${p.name} is getting launched!`, [1, 2, 3, 4, 5].map(k => ({
+        label: `${k} space${k > 1 ? 's' : ''} forward`, weight: 1,
+        run: () => { n = k; return `🚀 ${p.name} flies ${k} space${k > 1 ? 's' : ''} forward!`; },
+      })));
+      await game.launch(p, n);
+      game.addLog(`${p.name} landed safely. No effect this time.`);
     },
   },
 
   bandit: {
-    name: 'Bandit', color: '#9d4edd', icon: '🦹', passOnly: true,
+    name: 'Bandit', color: PURPLE, icon: '🦹', passOnly: true,
     desc: `Walk past to steal ${COIN_STEAL_MIN}–${COIN_STEAL_MAX} coins (free) or a Star (${STAR_STEAL_COST} coins)`,
     async onPass(game, p) { await banditEncounter(game, p); },
   },
 
   chance: {
-    name: 'Chance Space', color: '#ff006e', icon: '?!', desc: 'Two random players trade something',
+    name: 'Chance Space', color: BLUE, icon: '🔃', desc: 'Two random players trade something',
     async onLand(game, p) {
       if (game.players.length < 2) {
         game.give(p, 5);

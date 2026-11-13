@@ -66,7 +66,7 @@ add(between([[sTop.x, sTop.y], [sBot.x, sBot.y]], 5), types('red badluck chance 
 // Locked: you need a Secret Key to go in. The Star never spawns in here.
 const dA = nodes[33], dB = nodes[37];
 const hideout = add(between([[dA.x, dA.y], [420, 760], [540, 540], [420, 320], [dB.x, dB.y]], 7),
-  types('red event blue bandit lucky red blue'),
+  types('red blue blue bandit lucky red blue'),
   33, 37, 'Main road ⬆️', "Bandit's Hideout ➡️");
 dA.gates = { [hideout[0]]: 'secretKey' };
 hideout.forEach(id => { nodes[id].noStar = true; });

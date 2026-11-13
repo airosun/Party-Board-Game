@@ -12,7 +12,7 @@
 const crypto = require('crypto');
 const minigames = require('./minigames');
 const { SPACES, SPACE_META, banditEncounter } = require('./spaces');
-const { ITEMS, DICE_ITEMS, dropWeight } = require('./items');
+const { ITEMS, DICE_ITEMS, MAX_ITEMS, dropWeight } = require('./items');
 
 const MAX_PLAYERS = 4;
 const STAR_COST = 20;
@@ -115,7 +115,41 @@ class Game {
     this.rouletteState = null;
     this.phase = prevPhase;
     this.broadcast();
+    if (chosen.after) await chosen.after(); // follow-ups that may prompt (e.g. a discard)
     return chosen;
+  }
+
+  // Give a player an item. If that overfills the bag, they pick one of the 4 to throw away
+  // (including the new one).
+  async addItem(p, id) {
+    p.items.push(id);
+    this.broadcast();
+    if (p.items.length <= MAX_ITEMS) return;
+    const newIndex = p.items.length - 1;
+    const drop = await this.ask(p, 'DISCARD', {
+      kind: 'discard',
+      text: `Your bag only holds ${MAX_ITEMS}. Throw one away:`,
+      options: p.items.map((it, i) => ({
+        value: i,
+        label: `${ITEMS[it].icon} ${ITEMS[it].name}${i === newIndex ? ' (new)' : ''}`,
+        desc: ITEMS[it].desc,
+      })),
+      defaultValue: newIndex,
+    });
+    const [gone] = p.items.splice(drop, 1);
+    this.addLog(`🗑️ ${p.name} threw away a ${ITEMS[gone].name}.`);
+    await this.beat();
+  }
+
+  // ? space: fly forward n spaces along the main road. Nothing triggers on the way or where you land.
+  async launch(p, n) {
+    let left = n;
+    while (left > 0) {
+      p.pos = this.nodes.get(p.pos).next[0]; // forks: follow the main road; never through a gate
+      if (!SPACES[this.spaceType(p.pos)].passOnly) left--; // shops/Bandit can't be landed on
+      this.broadcast();
+      await wait(T.hop * 0.6);
+    }
   }
 
   // Pause the flow and wait for one player's answer. Resolves with the chosen value.
@@ -526,7 +560,7 @@ class Game {
 
   publicState() {
     const mg = this.minigame;
-    const turnPhases = ['ROLL', 'ITEM', 'ITEM_TARGET', 'MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'CUSTOM_DICE', 'BANDIT', 'ROULETTE'];
+    const turnPhases = ['ROLL', 'ITEM', 'ITEM_TARGET', 'DISCARD', 'MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'CUSTOM_DICE', 'BANDIT', 'ROULETTE'];
     return {
       code: this.code,
       phase: this.phase,

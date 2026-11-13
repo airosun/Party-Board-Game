@@ -114,6 +114,7 @@ function renderSidebar(s) {
     ITEM: `${turnName} is using an item…`,
     ITEM_TARGET: `🐌 ${turnName} is picking a Bad Dice victim…`,
     BANDIT: `🦹 ${turnName} is meeting the Bandit…`,
+    DISCARD: `🗑️ ${turnName}'s bag is full: picking an item to toss…`,
     SHOP: `🛒 ${turnName} is shopping…`,
     CUSTOM_DICE: `🎯 ${turnName} is picking a number…`,
     ROULETTE: `${turnName}'s roulette…`,

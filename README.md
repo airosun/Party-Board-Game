@@ -34,6 +34,8 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 
 ## Spaces
 
+Colors: **blue** = Blue, Lucky, VS, Chance · **red** = Red, Super Bad Luck · **green** = ?, Bank, Item · **purple** = Bandit. The icon tells same-colored spaces apart.
+
 | Space | Pass | Land |
 |---|---|---|
 | 🔵 Blue | n/a | +3 coins (**+6 in the last 5 turns**) |
@@ -43,15 +45,15 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 | 💀 Super Bad Luck | n/a | Bad roulette: −10, lose half your coins, pay everyone 5, give last place 10, Star moves, lose a Star |
 | ⚔️ VS | n/a | Roulette picks a wager (5–20), everyone pays into a pot, minigame, winner takes the pot. **Space turns Blue afterwards** |
 | 🏦 Bank | Pay 5 coins into the Bank | Take everything in the Bank (all Banks share one pot) |
-| 🎁 Item Space | n/a | Random item (odds = 1/price, so cheap items are common; rare items only after halfway). Bag full → +5 coins |
-| ❗ Chance | n/a | Two random players: swap coins / Stars / spaces, or one pays the other 10 |
-| ❓ ? Space | n/a | *Placeholder: does nothing yet* |
+| 🎁 Item Space | n/a | Random item (odds = 1/price, so cheap items are common; rare items only after halfway) |
+| 🔃 Chance | n/a | Two random players: swap coins / Stars / spaces, or one pays the other 10 |
+| ❓ ? Space | n/a | Launches you 1–5 spaces forward along the main road. Nothing triggers on the way or where you land |
 | 🦹 Bandit | Must pick one: steal 8–20 coins (free) **or** steal a Star (50 coins, greyed out if you can't afford it or nobody has one). Then pick a victim or 🎲 Random. Not a real space: costs no step | n/a |
 | ⭐ Star | Buy for 20 coins as you pass (sits on a Blue space) | same |
 
 ## Items
 
-One item per turn, used before rolling. Bag holds 3. **Rare** items aren't sold (or given by Lucky) until halfway through the game (turn 6 of 10).
+One item per turn, used before rolling. Bag holds 3: getting a 4th (shop, Lucky, Item space) asks you which one to throw away, including the new one. **Rare** items aren't sold (or given by Lucky) until halfway through the game (turn 6 of 10).
 
 | Item | Price | Effect |
 |---|---|---|

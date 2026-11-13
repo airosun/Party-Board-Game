@@ -74,6 +74,7 @@ function statusText(s, myTurn) {
     case 'SHOP':
     case 'CUSTOM_DICE':
     case 'BANDIT':
+    case 'DISCARD':
     case 'ITEM_TARGET': return myTurn && s.prompt ? esc(s.prompt.text) : `${turnName} is deciding…`;
     case 'ITEM': return `${myTurn ? 'You' : turnName} used an item!`;
     case 'ROULETTE': return `${esc(s.roulette.title)}${s.roulette.resultText ? `<br><b>${esc(s.roulette.resultText)}</b>` : ''}`;
