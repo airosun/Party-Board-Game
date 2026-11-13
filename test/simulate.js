@@ -18,6 +18,7 @@ host.emit('host:create', {}, async ({ code }) => {
     s.on('state', st => {
       const me = st.players.find(p => p.id === s.pid);
       if (st.phase === 'ROLL_OFF' && st.rollOff && !(s.pid in st.rollOff.rolls)) act({ type: 'rollOff' });
+      if (st.gate && st.gate.pending.includes(s.pid)) act({ type: 'press', kind: st.gate.kind });
       if (st.phase === 'ROLL' && st.turnPlayerId === s.pid) {
         const usable = me.items.findIndex(id => id !== 'secretKey');
         if (usable >= 0 && !st.turnItemUsed && Math.random() < 0.7) act({ type: 'useItem', index: usable });
@@ -37,6 +38,11 @@ host.emit('host:create', {}, async ({ code }) => {
         if (['timing', 'grid', 'rhythm'].includes(c)) act({ type: 'minigame', input: { points: Math.floor(Math.random() * 3) } });
         if (['hold', 'blind'].includes(c)) act({ type: 'minigame', input: { value: Math.floor(Math.random() * 1500) } });
         if (c === 'memory') act({ type: 'minigame', input: { value: Math.floor(Math.random() * 8) } });
+        if (c === 'turns' && mg.live.turn?.playerId === s.pid) {
+          const opts = mg.live.turn.options.filter(o => !o.disabled);
+          if (opts.length) act({ type: 'minigame', input: { choice: opts[Math.floor(Math.random() * opts.length)].id } });
+        }
+        if (c === 'pump') act({ type: 'minigame', input: Math.random() < 0.08 ? { cash: true } : { pump: true } });
       }
     });
   }
@@ -56,4 +62,4 @@ host.emit('host:create', {}, async ({ code }) => {
   });
   host.emit('host:start', { maxRounds: ROUNDS });
 });
-setTimeout(() => { console.error('TIMEOUT'); process.exit(1); }, 180000);
+setTimeout(() => { console.error('TIMEOUT'); process.exit(1); }, 400000);

@@ -289,6 +289,7 @@ class BoardScene extends Phaser.Scene {
 
   // Called by host.js whenever the server sends new state
   applyState(s) {
+    this.lastState = s;
     for (const n of this.boardData.nodes) this.paintNode(n.id, s.spaceOverrides?.[n.id] ?? n.type);
     this.bankTexts.forEach(t => t.setText(s.phase === 'LOBBY' ? '' : `🏦 ${s.bank}`));
 
@@ -300,10 +301,21 @@ class BoardScene extends Phaser.Scene {
       if (this.starKey !== key) {
         const first = !this.starKey;
         this.starKey = key;
+        // Stop anything still moving the Star, then fly it (all parts together) to the new spot
+        this.starFlight?.stop();
         if (first) starObjs.forEach(o => o.setPosition(x, y));
         else {
-          this.tweens.add({ targets: starObjs, x, y, duration: 1100, ease: 'Cubic.easeInOut' });
-          this.tweens.add({ targets: this.star, y: y - 120, duration: 550, yoyo: true, ease: 'Sine.easeOut' });
+          const sx = this.star.x, sy = this.star.y;
+          this.starFlight = this.tweens.addCounter({
+            from: 0, to: 1, duration: 1100, ease: 'Cubic.easeInOut',
+            onUpdate: tw => {
+              const k = tw.getValue();
+              const px = sx + (x - sx) * k, py = sy + (y - sy) * k;
+              this.starGlow.setPosition(px, py); this.starRays.setPosition(px, py);
+              this.star.setPosition(px, py - Math.sin(k * Math.PI) * 120); // arc through the air
+            },
+            onComplete: () => starObjs.forEach(o => o.setPosition(x, y)),
+          });
         }
       }
       starObjs.forEach(o => o.setVisible(true));
@@ -364,8 +376,9 @@ class BoardScene extends Phaser.Scene {
 
     // Camera: follow the moving player up close, otherwise show the whole board
     const t = this.tokens.get(s.turnPlayerId);
-    const wantFollow = t && MOVE_PHASES.includes(s.phase);
+    const wantFollow = t && MOVE_PHASES.includes(s.phase) && !s.boardView; // a player opened the full map
     const cam = this.cameras.main;
+    if (this.time.now < (this.focusUntil || 0)) return; // showing where the Star went
     if (wantFollow && this.camMode !== s.turnPlayerId) {
       this.camMode = s.turnPlayerId;
       cam.startFollow(t.container, false, 0.08, 0.08);
@@ -376,6 +389,21 @@ class BoardScene extends Phaser.Scene {
       cam.pan(this.boardData.width / 2, this.boardData.height / 2, 700, 'Sine.easeInOut');
       cam.zoomTo(1, 700, 'Sine.easeInOut');
     }
+  }
+
+  // Fly the camera to the Star's new spot for a moment, then hand back control
+  focusStar(star, ms = 2800) {
+    const { x, y } = this.starPos(star);
+    const cam = this.cameras.main;
+    this.focusUntil = this.time.now + ms;
+    cam.stopFollow();
+    this.camMode = 'star';
+    this.time.delayedCall(450, () => { cam.pan(x, y, 700, 'Sine.easeInOut'); cam.zoomTo(1.6, 700, 'Sine.easeInOut'); });
+    this.time.delayedCall(ms, () => {
+      this.focusUntil = 0;
+      this.camMode = 'star-done';
+      if (this.lastState) this.applyState(this.lastState);
+    });
   }
 
   // ---------- effects (from server "fx" events) ----------

@@ -110,6 +110,10 @@ function renderSidebar(s) {
     LOBBY: 'Join on your phone!',
     ROLL_OFF: 'Everyone roll on your phone!',
     ROLL: `${turnName}'s turn: roll!`,
+    TURN_SPLASH: 'Here we go!',
+    TURN_END: `${turnName}: tap <b>End turn</b> when ready`,
+    MINIGAME_TEAMS: 'Picking teams…',
+    FINALE: 'And the winner is…',
     ITEM: `${turnName} is using an item…`,
     ITEM_TARGET: `🐌 ${turnName} is picking a Bad Dice victim…`,
     BANDIT: `🦹 ${turnName} is meeting the Bandit…`,
@@ -120,7 +124,7 @@ function renderSidebar(s) {
     MOVING: `${turnName} is moving…`,
     JUNCTION: `${turnName} is choosing a path…`,
     STAR_PROMPT: `⭐ ${turnName}: buy a Star?`,
-    MINIGAME_INTRO: 'Minigame time!',
+    MINIGAME_INTRO: 'Tap Ready on your phone!',
     MINIGAME: 'Minigame time!',
     MINIGAME_RESULTS: 'Minigame results',
     GAME_OVER: 'Game over!',
@@ -130,7 +134,8 @@ function renderSidebar(s) {
   $('players').innerHTML = players.map(p => `
     <div class="player-card ${p.id === s.turnPlayerId ? 'active' : ''} ${p.connected ? '' : 'offline'}">
       <span class="dot" style="background:${p.color}"></span>
-      <span>${esc(p.name)}${p.cpu ? ' <span class="cpu-tag">CPU</span>' : ''}${p.connected ? '' : ' (offline)'}
+      <span>${p.id === s.hostPlayerId ? '<span title="Player 1">👑</span> ' : ''}${esc(p.name)}${p.cpu ? ' <span class="cpu-tag">CPU</span>' : ''}${p.connected ? '' : ' (offline)'}
+        ${p.roundColor && !lobby && s.phase !== 'GAME_OVER' ? `<span class="landed ${p.roundColor}" title="Space color landed on this turn"></span>` : ''}
         <span class="items">${(p.items || []).map(id => ITEMS[id]?.icon ?? '').join(' ')}</span>
         ${p.badDice ? '<span class="cursed" title="Bad Dice: rolls 1–3 next turn">🐌 1–3</span>' : ''}</span>
       ${lobby ? '<span></span><span></span>' : `<span class="stat">⭐ ${p.stars}</span><span class="stat">🪙 ${p.coins}</span>`}
@@ -143,6 +148,7 @@ function renderOverlay(s) {
   const el = $('overlay'), c = $('overlay-content');
   const mg = s.minigame;
   if (s.phase !== 'ROULETTE') stopRoulette();
+  if (s.phase !== 'FINALE') delete c.dataset.key;
   el.classList.remove('see-through');
   if (s.phase === 'GAME_OVER' && !confettiDone) { confettiDone = true; confetti(160); }
   if (s.phase !== 'GAME_OVER') confettiDone = false;
@@ -171,19 +177,38 @@ function renderOverlay(s) {
           <div class="ro-num">${ro.rolls[id] ?? '?'}</div>
           <div>${esc(nameOf(s, id))}</div>
         </div>`).join('')}</div>`;
+  } else if (s.phase === 'TURN_SPLASH') {
+    el.classList.remove('hidden');
+    el.classList.add('see-through');
+    if (!c.querySelector('.turn-splash')) {
+      c.innerHTML = `<div class="turn-splash ${s.lastTurn ? 'last' : ''}">
+        <div class="ts-small">${s.lastTurn ? '🔥 FINAL ROUND 🔥' : s.finalStretch ? '🔥 Final stretch' : 'Get ready!'}</div>
+        <div class="ts-big">${s.lastTurn ? 'LAST TURN!' : `TURN ${s.round}`}</div>
+        <div class="ts-small">of ${s.maxRounds}</div></div>`;
+    }
+  } else if (s.phase === 'MINIGAME_TEAMS' && mg) {
+    el.classList.remove('hidden');
+    if (!c.querySelector('.team-reveal')) c.innerHTML = renderTeamReveal(s, mg);
+  } else if (s.phase === 'FINALE' && s.finale) {
+    el.classList.remove('hidden');
+    renderFinale(s);
   } else if (s.phase === 'ROULETTE' && s.roulette) {
     el.classList.remove('hidden');
     renderRoulette(s.roulette);
   } else if (s.phase === 'MINIGAME_INTRO' && mg) {
     el.classList.remove('hidden');
+    const pending = s.gate?.kind === 'ready' ? s.gate.pending : [];
     c.innerHTML = `${mg.banner ? `<div class="banner">${esc(mg.banner)}</div>` : ''}
       <div class="mode-badge">${modeLabel(mg.mode)}</div>
-      <h2>${esc(mg.name)}</h2><div class="big">${esc(mg.instructions)}</div>
+      <h2>${esc(mg.name)}</h2><div class="big rules">${esc(mg.instructions)}</div>
       ${mg.teams ? renderTeams(s, mg.teams) : ''}
-      <div class="big get-ready">Get ready…</div>`;
+      <div class="ready-list">${s.players.map(p => `<div class="ready-chip ${pending.includes(p.id) ? '' : 'ok'}" style="--c:${p.color}">
+        ${pending.includes(p.id) ? '⏳' : '✅'} ${esc(p.name)}</div>`).join('')}</div>
+      <div class="big get-ready">${pending.length ? 'Tap READY on your phone!' : 'Starting!'}</div>`;
   } else if (s.phase === 'MINIGAME' && mg) {
     el.classList.remove('hidden');
-    c.innerHTML = `<h2>${esc(mg.name)}</h2><div class="timer">${Math.ceil((mg.timeLeftMs ?? 0) / 1000)}</div>${renderLive(s, mg)}`;
+    const view = mg.live?.view;
+    c.innerHTML = `<h2>${esc(mg.name)}</h2>${view ? '' : `<div class="timer">${Math.ceil((mg.timeLeftMs ?? 0) / 1000)}</div>`}${view ? renderView(s, mg) : renderLive(s, mg)}`;
   } else if (s.phase === 'MINIGAME_RESULTS' && mg?.results) {
     el.classList.remove('hidden');
     const tr = mg.teamResult;
@@ -194,12 +219,84 @@ function renderOverlay(s) {
         <td><span class="team-tag ${r.team}">${r.team}</span></td>
         <td>${chip(s, r.playerId)}</td><td>${esc(r.display)}</td>
         <td>${r.reward ? `+${r.reward} 🪙` : ''}</td></tr>`).join('')}</table>` : podium(s, mg.results.map(r => ({
-        playerId: r.playerId, place: r.place, line1: r.display, line2: r.reward ? `+${r.reward} 🪙` : '' })))}`;
+        playerId: r.playerId, place: r.place, line1: r.display, line2: r.reward ? `+${r.reward} 🪙` : '' })))}
+      ${s.gate?.kind === 'next' ? `<div class="next-hint">▶️ Waiting for <b>${esc(nameOf(s, s.gate.pending[0]))}</b> to tap Next</div>` : ''}`;
   } else if (s.phase === 'GAME_OVER' && s.final) {
     el.classList.remove('hidden');
     c.innerHTML = renderGameOver(s);
   } else {
     el.classList.add('hidden');
+  }
+}
+
+// Teams screen: everyone's landed color; green players flicker red/blue, then lock in
+function renderTeamReveal(s, mg) {
+  const cards = mg.teamReveal.map((r, i) => `
+    <div class="tr-card ${r.landed === 'green' ? 'green-flip' : ''}" style="--final:${r.team === 'red' ? '#e63946' : '#1982c4'}; --delay:${1.2 + i * 0.5}s">
+      <div class="tr-name">${chip(s, r.playerId)}</div>
+      <div class="tr-landed">landed on <span class="landed ${r.landed}"></span> ${r.landed}</div>
+      <div class="tr-team ${r.team}">${r.landed === 'green' ? '🎲 → ' : ''}${r.team.toUpperCase()}</div>
+    </div>`).join('');
+  return `<div class="team-reveal">
+    <h2>Minigame time!</h2>
+    <div class="big">Your team is the color of the space you landed on. Green? Random!</div>
+    <div class="tr-cards">${cards}</div>
+    <div class="tr-mode" style="animation-delay:${1.6 + mg.teamReveal.length * 0.5}s">${modeLabel(mg.mode)}</div>
+  </div>`;
+}
+
+// Turn-based / round-based minigames: a board of options, whose turn it is, and the play-by-play
+function renderView(s, mg) {
+  const v = mg.live.view, live = mg.live;
+  const turn = live.turn;
+  let body = '';
+  if (v.grid) {
+    body = `<table class="mg-grid"><tr><th></th>${v.grid.cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr>
+      ${v.grid.rows.map((r, i) => `<tr><td class="rowlabel">${esc(r)}</td>${v.grid.cells[i].map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</table>`;
+  }
+  if (v.items) body += `<div class="mg-items ${v.small ? 'small' : ''}">${v.items.map(it => `<div class="mg-item ${it.cls}">${esc(it.label).replace(/\n/g, '<br>')}</div>`).join('')}</div>`;
+  const order = live.order ? `<div class="mg-order">${live.order.map(id => `<span class="ro-chip ${turn?.playerId === id ? 'now' : ''} ${live.out?.includes(id) ? 'out' : ''} ${live.finished?.includes(id) ? 'done' : ''}" style="--c:${colorOf(s, id)}">${esc(nameOf(s, id))} <small>${esc(live.display?.[id] ?? '')}</small></span>`).join('')}</div>` : '';
+  return `<div class="mg-view">
+    <div class="big">${esc(v.title || '')}</div>
+    ${order}
+    ${turn ? `<div class="mg-turn">👉 <b style="color:${colorOf(s, turn.playerId)}">${esc(nameOf(s, turn.playerId))}</b>: ${esc(turn.prompt)} <small>(${turn.secondsLeft}s)</small></div>` : ''}
+    ${v.subtitle ? `<div class="mg-turn">${esc(v.subtitle)}</div>` : ''}
+    ${body}
+    ${live.log ? `<div class="mg-log">${live.log.map(l => `<div>${esc(l)}</div>`).join('')}</div>` : ''}
+  </div>`;
+}
+
+// End of game: bonus Stars one by one, then standings from last place to the winner
+function renderFinale(s) {
+  const f = s.finale, c = $('overlay-content');
+  const key = `${f.step}-${f.index}-${f.revealed}-${f.shown}`;
+  if (c.dataset.key === key) return;
+  c.dataset.key = key;
+  if (f.step === 'intro') {
+    c.innerHTML = '<div class="finale"><div class="fin-big">🌟 BONUS STARS 🌟</div><div class="big">Three extra Stars are up for grabs…</div></div>';
+  } else if (f.step === 'bonus') {
+    const b = f.bonuses[f.index];
+    c.innerHTML = `<div class="finale">
+      <div class="fin-small">Bonus Star ${f.index + 1} of ${f.bonuses.length}</div>
+      <div class="fin-big">${b.icon} ${esc(b.title)}</div>
+      <div class="big">for the ${esc(b.desc)}${f.revealed ? ` (${b.value})` : ''}…</div>
+      ${f.revealed
+        ? `<div class="fin-winner">${b.playerIds.length ? b.playerIds.map(id => chip(s, id)).join(' & ') : 'Nobody!'}</div><div class="fin-star">⭐ +1</div>`
+        : '<div class="drumroll">🥁</div>'}
+    </div>`;
+    if (f.revealed && b.playerIds.length) confetti(60);
+  } else if (f.step === 'standings') {
+    const n = f.standings.length;
+    const rows = f.standings.map((st, i) => {
+      const visible = i >= n - f.shown; // revealed from the bottom up
+      return `<div class="fin-row p${st.place} ${visible ? 'show' : ''}">
+        <span class="fin-place">#${st.place}</span>
+        <span class="fin-name">${visible ? chip(s, st.playerId) : '???'}</span>
+        <span>${visible ? `⭐ ${st.stars} · 🪙 ${st.coins}` : ''}</span></div>`;
+    }).join('');
+    const winner = f.shown === n;
+    c.innerHTML = `<div class="finale"><div class="fin-big">${winner ? `👑 ${esc(nameOf(s, f.standings[0].playerId))} WINS! 👑` : 'Final standings'}</div><div class="fin-rows">${rows}</div></div>`;
+    if (winner) confetti(200);
   }
 }
 
@@ -282,6 +379,7 @@ socket.on('fx', fx => {
     case 'land': scene?.burst(fx.nodeId, SPACE_TYPES[fx.spaceType]?.color || '#ffffff'); break;
     case 'announce': announce(`${fx.icon ? `${fx.icon} ` : ''}${fx.text}`, fx.tone); break;
     case 'nudge': announce(`👉 ${fx.fromName} nudged ${fx.toName}!`, 'info'); break;
+    case 'starMoved': scene?.focusStar(fx.star); break;
   }
 });
 

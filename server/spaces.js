@@ -138,7 +138,7 @@ const SPACES = {
           label: 'Give last place 10', weight: 2, available: last && last !== p,
           run: () => { const a = Math.min(10, p.coins); game.give(p, -a); game.give(last, a); return `${p.name} gave ${last.name} ${a} coins`; },
         },
-        { label: 'The Star moves!', weight: 2, run: () => { game.moveStar(); return 'The Star flew to a new spot!'; } },
+        { label: 'The Star moves!', weight: 2, run: () => 'The Star is flying away!', after: () => game.relocateStar() },
         {
           label: 'Lose a Star', weight: 1, available: p.stars > 0,
           run: () => { game.addStar(p, -1); return `${p.name} LOST A STAR!`; },
@@ -219,20 +219,27 @@ const SPACES = {
   },
 
   chance: {
-    name: 'Chance Space', color: BLUE, icon: '🔃', desc: 'Two random players trade something',
+    name: 'Chance Space', color: BLUE, icon: '🔃', desc: 'Three wheels: who gives, who gets, and what happens',
     async onLand(game, p) {
       if (game.players.length < 2) {
         game.give(p, 5);
-        game.addLog(`❗ Chance Space, but nobody to trade with: +5 coins`);
+        game.addLog(`🔃 Chance Space, but nobody to trade with: +5 coins`);
         return;
       }
-      const [a, b] = [...game.players].sort(() => Math.random() - 0.5);
-      await game.roulette(p, `❗ Chance Time: ${a.name} ⇄ ${b.name}`, [
+      // Wheel 1: first player. Wheel 2: second player (anyone else). Wheel 3: what happens.
+      let a = null, b = null;
+      await game.roulette(p, '🔃 Chance Time! Player 1…', game.players.map(o => ({
+        label: o.name, weight: 1, run: () => { a = o; return `${o.name}…`; },
+      })));
+      await game.roulette(p, `🔃 ${a.name} and…`, game.players.filter(o => o !== a).map(o => ({
+        label: o.name, weight: 1, run: () => { b = o; return `…${o.name}!`; },
+      })));
+      await game.roulette(p, `🔃 ${a.name} ⇄ ${b.name}: what happens?`, [
         { label: 'Swap coins', weight: 2, run: () => { const d = b.coins - a.coins; game.give(a, d); game.give(b, -d); return `${a.name} and ${b.name} swapped coins!`; } },
         { label: 'Swap Stars', weight: 1, run: () => { const d = b.stars - a.stars; game.addStar(a, d); game.addStar(b, -d); return `${a.name} and ${b.name} swapped Stars!!`; } },
         { label: 'Swap spaces', weight: 2, run: () => { [a.pos, b.pos] = [b.pos, a.pos]; return `${a.name} and ${b.name} swapped places!`; } },
-        { label: `${a.name} → ${b.name}: 10 coins`, weight: 2, run: () => { const x = Math.min(10, a.coins); game.give(a, -x); game.give(b, x); return `${a.name} gave ${b.name} ${x} coins`; } },
-        { label: `${b.name} → ${a.name}: 10 coins`, weight: 2, run: () => { const x = Math.min(10, b.coins); game.give(b, -x); game.give(a, x); return `${b.name} gave ${a.name} ${x} coins`; } },
+        { label: `${a.name} gives ${b.name} 10`, weight: 2, run: () => { const x = Math.min(10, a.coins); game.give(a, -x); game.give(b, x); return `${a.name} gave ${b.name} ${x} coins`; } },
+        { label: `${b.name} gives ${a.name} 10`, weight: 2, run: () => { const x = Math.min(10, b.coins); game.give(b, -x); game.give(a, x); return `${b.name} gave ${a.name} ${x} coins`; } },
       ]);
     },
   },

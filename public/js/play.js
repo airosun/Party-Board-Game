@@ -8,6 +8,9 @@ const vibrate = ms => { try { navigator.vibrate?.(ms); } catch {} };
 
 let me = JSON.parse(localStorage.getItem('partyPlayer') || 'null'); // { code, playerId, name }
 let ITEMS = {};
+let BOARDS = {};
+let SPACE_TYPES = {};
+let mapOpen = false;
 let latest = null;
 let latestAt = 0;     // when `latest` arrived (for the nudge timer)
 let viewKey = null;   // only rebuild the action buttons when this changes
@@ -27,6 +30,8 @@ function join(code, name, playerId) {
       return;
     }
     ITEMS = res.items || {};
+    BOARDS = Object.fromEntries((res.boards || []).map(b => [b.id, b]));
+    SPACE_TYPES = res.spaceTypes || {};
     me = { code: res.code, playerId: res.playerId, name };
     window.ME = me.playerId;
     localStorage.setItem('partyPlayer', JSON.stringify(me));
@@ -40,6 +45,7 @@ socket.on('connect', () => { if (me?.playerId) join(me.code, me.name, me.playerI
 
 const send = action => socket.emit('player:action', action);
 const nameOf = (s, id) => s.players.find(p => p.id === id)?.name ?? '?';
+window.nameOfId = id => (latest ? nameOf(latest, id) : '?'); // used by minigame controls
 
 // ----- state -----
 socket.on('state', s => {
@@ -51,15 +57,16 @@ socket.on('state', s => {
 
   $('my-dot').style.background = self.color;
   document.documentElement.style.setProperty('--me', self.color);
-  $('my-name').textContent = self.name;
+  $('my-name').textContent = `${s.hostPlayerId === me.playerId ? '👑 ' : ''}${self.name}`;
   $('my-stats').textContent = s.phase === 'LOBBY' ? '' : `⭐ ${self.stars}   🪙 ${self.coins}`;
   $('turn-pill').textContent = s.phase === 'LOBBY' || s.phase === 'GAME_OVER' || s.phase === 'ROLL_OFF' ? ''
     : s.lastTurn ? '🔥 LAST TURN' : `Turn ${s.round}/${s.maxRounds}`;
 
   const myTurn = s.turnPlayerId === me.playerId;
   const myPrompt = s.prompt?.playerId === me.playerId;
+  const myGate = s.gate && s.gate.pending.includes(me.playerId) ? s.gate.kind : '';
   const key = [s.phase, myTurn, myPrompt && s.prompt.kind, myPrompt && s.prompt.text, s.minigame?.id,
-    self.items.join(','), s.turnItemUsed, s.rollOff && (me.playerId in s.rollOff.rolls)].join('|');
+    self.items.join(','), s.turnItemUsed, s.rollOff && (me.playerId in s.rollOff.rolls), myGate].join('|');
 
   $('status').innerHTML = statusText(s, self, myTurn);
   if (key !== viewKey) {
@@ -70,6 +77,7 @@ socket.on('state', s => {
   const bag = self.items.map(id => `${ITEMS[id]?.icon ?? ''} ${ITEMS[id]?.name ?? id}`).join(' · ');
   $('bag').textContent = s.phase === 'LOBBY' || !bag ? '' : `Bag: ${bag}`;
   renderNudges();
+  if (mapOpen) drawMap(s);
 });
 
 function statusText(s, self, myTurn) {
@@ -82,7 +90,14 @@ function statusText(s, self, myTurn) {
       if (s.rollOff?.order) return `Turn order:<br><b>${s.rollOff.order.map(id => esc(nameOf(s, id))).join(' → ')}</b>`;
       return mine ? `You rolled <b>${mine}</b>. Waiting for the others…` : '<b>Roll to see who goes first!</b><br><small>Highest roll goes first. No two players can roll the same number.</small>';
     }
+    case 'TURN_SPLASH': return s.lastTurn ? '🔥 <b>LAST TURN!</b>' : `<b>Turn ${s.round}</b> of ${s.maxRounds}`;
     case 'ROLL': return myTurn ? '<b>Your turn!</b>' : `${turnName}'s turn`;
+    case 'TURN_END': return myTurn ? '<b>Done?</b> Tap End turn to pass to the next player.' : `${turnName} is finishing their turn…`;
+    case 'MINIGAME_TEAMS': {
+      const r = mg.teamReveal?.find(x => x.playerId === me.playerId);
+      return `<span class="mode-tag">${modeLabel(mg.mode)}</span><br>${r ? `You landed on <b>${r.landed}</b>${r.landed === 'green' ? ' (randomized!)' : ''}<br><span class="team-tag ${r.team}">You're on ${r.team.toUpperCase()}</span>` : ''}`;
+    }
+    case 'FINALE': return '🥁 <b>Bonus Stars and the final results!</b> Watch the TV.';
     case 'MOVING': return s.dice ? `${myTurn ? 'You' : turnName} rolled <b>${s.dice.value}</b>` : '';
     case 'JUNCTION': case 'STAR_PROMPT': case 'SHOP': case 'CUSTOM_DICE': case 'BANDIT': case 'DISCARD': case 'ITEM_TARGET':
       return s.prompt?.playerId === me.playerId ? `<b>${esc(s.prompt.text)}</b>` : `${turnName} is deciding…`;
@@ -90,6 +105,10 @@ function statusText(s, self, myTurn) {
     case 'ROULETTE': return `${esc(s.roulette.title)}${s.roulette.resultText ? `<br><b>${esc(s.roulette.resultText)}</b>` : ''}`;
     case 'MINIGAME_INTRO': {
       const team = teamOf(mg, me.playerId);
+      const waitingOn = s.gate?.kind === 'ready' ? s.gate.pending.length : 0;
+      if (s.gate?.kind === 'ready' && !s.gate.pending.includes(me.playerId)) {
+        return `<div class="mg-title">${esc(mg.name)}</div>✅ You're ready! Waiting for ${waitingOn} more…`;
+      }
       return `${mg.banner ? `${esc(mg.banner)}<br>` : ''}<span class="mode-tag">${modeLabel(mg.mode)}</span>
         ${team ? `<span class="team-tag ${team}">You're on ${team.toUpperCase()}</span>` : ''}
         <div class="mg-title">${esc(mg.name)}</div><div class="mg-instr">${esc(mg.instructions)}</div>`;
@@ -99,7 +118,8 @@ function statusText(s, self, myTurn) {
       const r = mg.results.find(x => x.playerId === me.playerId);
       const tr = mg.teamResult;
       const head = tr ? (tr.winner === 'tie' ? 'Tie game!' : r?.team === tr.winner ? '🏆 Your team won!' : 'Your team lost.') : r ? (r.won ? '🏆 You won!' : `You placed #${r.place}`) : '';
-      return `${head}<br>${r ? `${esc(r.display)}${r.reward ? `<br><b>+${r.reward} coins</b>` : ''}` : ''}`;
+      const waiting = s.gate?.kind === 'next' && !s.gate.pending.includes(me.playerId) ? `<br><small>Waiting for ${esc(nameOf(s, s.gate.pending[0]))} to tap Next…</small>` : '';
+      return `${head}<br>${r ? `${esc(r.display)}${r.reward ? `<br><b>+${r.reward} coins</b>` : ''}` : ''}${waiting}`;
     }
     case 'GAME_OVER': {
       const st = s.final.standings.find(x => x.playerId === me.playerId);
@@ -117,7 +137,16 @@ function buildActions(s, self, myTurn, myPrompt) {
   a.innerHTML = '';
   if (s.phase !== 'MINIGAME') Controls.stop();
 
-  if (s.phase === 'ROLL_OFF' && s.rollOff && !(me.playerId in s.rollOff.rolls)) {
+  const gateMine = s.gate && s.gate.pending.includes(me.playerId) ? s.gate.kind : null;
+  const decision = (s.phase === 'ROLL' && myTurn) || myPrompt || gateMine === 'endTurn';
+
+  if (gateMine === 'ready') {
+    a.append(btn("✅ I'm ready!", () => send({ type: 'press', kind: 'ready' }), null, 'roll-btn'));
+  } else if (gateMine === 'next') {
+    a.append(btn('▶️ Next', () => send({ type: 'press', kind: 'next' }), 'You\'re Player 1: carry on when everyone\'s seen the results', 'roll-btn'));
+  } else if (gateMine === 'endTurn') {
+    a.append(btn('✅ End turn', () => send({ type: 'press', kind: 'endTurn' }), null, 'roll-btn'));
+  } else if (s.phase === 'ROLL_OFF' && s.rollOff && !(me.playerId in s.rollOff.rolls)) {
     a.append(btn('🎲 Roll!', () => send({ type: 'rollOff' }), null, 'roll-btn'));
   } else if (s.phase === 'ROLL' && myTurn) {
     a.append(btn('🎲 Roll!', () => send({ type: 'roll' }), null, 'roll-btn'));
@@ -155,6 +184,52 @@ function buildActions(s, self, myTurn, myPrompt) {
   } else if (s.phase === 'GAME_OVER') {
     a.append(statsCard(self));
   }
+  if (decision) {
+    const m = btn('🗺️ View board', () => openMap(true), null, 'map-btn');
+    m.onclick = () => openMap(true); // reusable (don't disable)
+    a.append(m);
+  }
+}
+
+// ----- board map: see the whole board on your phone while deciding (the TV zooms out too) -----
+function openMap(open) {
+  mapOpen = open;
+  $('map').classList.toggle('show', open);
+  send({ type: 'viewBoard', open });
+  if (open && latest) drawMap(latest);
+}
+$('map-close').onclick = () => openMap(false);
+
+function drawMap(s) {
+  const b = BOARDS[s.boardId];
+  if (!b) return;
+  const type = n => s.spaceOverrides?.[n.id] ?? n.type;
+  // Phone held upright + wide board → turn the map sideways so it fills the screen
+  const svgBox = $('map-svg').getBoundingClientRect();
+  const rotate = svgBox.height > svgBox.width && b.width > b.height;
+  const up = (x, y) => (rotate ? ` transform="rotate(-90 ${x} ${y})"` : ''); // keep icons upright
+  const byId = Object.fromEntries(b.nodes.map(n => [n.id, n]));
+  const lines = b.nodes.flatMap(n => n.next.map(id => `<line x1="${n.x}" y1="${n.y}" x2="${byId[id].x}" y2="${byId[id].y}"/>`)).join('');
+  const spaces = b.nodes.map(n => {
+    const meta = SPACE_TYPES[type(n)] || {};
+    if (meta.passOnly) return `<rect x="${n.x - 22}" y="${n.y - 22}" width="44" height="44" rx="8" fill="${meta.color}" stroke="#fff" stroke-width="4"/><text x="${n.x}" y="${n.y + 2}" class="ic"${up(n.x, n.y)}>${meta.icon}</text>`;
+    return `<circle cx="${n.x}" cy="${n.y}" r="${type(n) === 'start' ? 34 : 26}" fill="${type(n) === 'start' ? '#ffd166' : meta.color}" stroke="#fff" stroke-width="4"/><text x="${n.x}" y="${n.y + 2}" class="ic"${up(n.x, n.y)}>${type(n) === 'start' ? 'GO' : meta.icon}</text>`;
+  }).join('');
+  let star = '';
+  if (s.star) {
+    const a = byId[s.star.from], c = byId[s.star.to];
+    const sx = (a.x + c.x) / 2, sy = (a.y + c.y) / 2;
+    star = `<text x="${sx}" y="${sy}" class="star"${up(sx, sy)}>⭐</text>`;
+  }
+  const pawns = s.players.map((p, i) => {
+    const n = byId[p.pos]; const [dx, dy] = [[-16, -16], [16, -16], [-16, 16], [16, 16]][i % 4];
+    const mine = p.id === me.playerId;
+    return `<circle cx="${n.x + dx}" cy="${n.y + dy}" r="${mine ? 20 : 15}" fill="${p.color}" stroke="${mine ? '#fff' : '#14213d'}" stroke-width="${mine ? 6 : 3}"/>`;
+  }).join('');
+  const content = `<rect width="${b.width}" height="${b.height}" fill="#1b6ca8"/><g class="roads">${lines}</g>${spaces}${star}${pawns}`;
+  $('map-svg').setAttribute('viewBox', rotate ? `0 0 ${b.height} ${b.width}` : `0 0 ${b.width} ${b.height}`);
+  $('map-svg').innerHTML = rotate ? `<g transform="translate(${b.height} 0) rotate(90)">${content}</g>` : content;
+  $('map-legend').innerHTML = s.players.map(p => `<span><i style="background:${p.color}"></i>${esc(p.name)}${p.id === me.playerId ? ' (you)' : ''}</span>`).join('');
 }
 
 function btn(label, onClick, desc, cls) {

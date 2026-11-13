@@ -78,7 +78,7 @@ io.on('connection', socket => {
     if (!res.ok) return ack(cb)(res);
     socket.join(game.code);
     socket.data = { code: game.code, role: 'player', playerId: res.playerId };
-    ack(cb)({ ok: true, code: game.code, playerId: res.playerId, items: ITEMS });
+    ack(cb)({ ok: true, code: game.code, playerId: res.playerId, items: ITEMS, boards: boards.list, spaceTypes: SPACE_META });
     game.broadcast();
   });
 

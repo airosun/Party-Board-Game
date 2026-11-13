@@ -33,9 +33,11 @@ const NUDGE_AFTER_MS = 60000;            // nudge button appears after a minute 
 const SPEED = Math.max(1, Number(process.env.GAME_SPEED) || 1);
 const wait = ms => new Promise(r => setTimeout(r, ms / SPEED));
 const T = {
-  hop: 350, afterRoll: 1500, afterLand: 1600, beat: 1000, roulette: 4200,
-  intro: 6000, results: 6500, cpuThink: 1100, rollOffEnd: 3500,
+  hop: 350, afterRoll: 1500, afterLand: 1200, beat: 1000, roulette: 4200,
+  results: 1500, cpuThink: 1100, rollOffEnd: 3500, turnSplash: 2800, teams: 6500,
+  starReveal: 3200, finaleIntro: 3000, drumroll: 2600, reveal: 3200,
 };
+const sleep = ms => new Promise(r => setTimeout(r, ms)); // real time (minigame clock)
 
 // Space color groups (used for team minigames)
 const COLOR_GROUP = {
@@ -99,6 +101,9 @@ class Game {
     this.final = null;
     this.awaiting = null;       // { playerIds, since, key }: who we're waiting on (for nudges)
     this.nudges = new Set();    // `${key}|${fromId}`
+    this.gate = null;           // waiting for button presses: { kind, pending:Set, press(id) }
+    this.finale = null;         // end-of-game reveal steps
+    this.boardViewer = null;    // player looking at the whole board on their phone (TV zooms out)
     this.turnKey = '';
     this.log = [];
   }
@@ -204,6 +209,45 @@ class Game {
     this.broadcast();
   }
 
+  // Wait until each listed player presses a button (Ready, Next, End turn…).
+  // No time limit for humans; CPUs press after a moment; dropped phones count as pressed.
+  waitForPress(kind, ids, cpuDelay = 1200) {
+    return new Promise(resolve => {
+      const pending = new Set(ids);
+      const gate = { kind, pending, done: false };
+      gate.press = id => {
+        if (gate.done || !pending.delete(id)) return;
+        this.clearAwaiting(id);
+        if (!pending.size) { gate.done = true; if (this.gate === gate) this.gate = null; this.awaiting = null; resolve(); }
+        this.broadcast();
+      };
+      this.gate = gate;
+      this.setAwaiting([...pending]);
+      this.broadcast();
+      for (const id of ids) {
+        const p = this.players.find(x => x.id === id);
+        if (!p || p.cpu) setTimeout(() => gate.press(id), (cpuDelay + Math.random() * 800) / SPEED);
+        else if (!p.connected) setTimeout(() => gate.press(id), 800 / SPEED);
+      }
+      if (!ids.length) { gate.done = true; this.gate = null; resolve(); }
+    });
+  }
+
+  // Player 1 (first to join) moves things along between minigames and turns.
+  // If they've dropped, any connected human can.
+  nextPresserId() {
+    const host = this.players.find(p => p.id === this.hostPlayerId && p.connected);
+    return (host || this.humans().find(p => p.connected) || this.players[0]).id;
+  }
+
+  async relocateStar() {
+    this.moveStar();
+    this.fx('starMoved', { star: this.star });
+    this.announce('The Star moved to a new spot!', { icon: '⭐' });
+    this.broadcast();
+    await wait(T.starReveal);
+  }
+
   // ---------- roulette, items, prompts ----------
 
   // Spin a weighted roulette shown on the TV. options: [{ label, weight, run, after?, available? }]
@@ -303,6 +347,7 @@ class Game {
     const p = this.makePlayer(String(name || '').trim().slice(0, 12) || `Player ${this.players.length + 1}`, false);
     p.socketId = socketId;
     this.players.push(p);
+    if (!this.players.some(x => x.id === this.hostPlayerId)) this.hostPlayerId = p.id; // Player 1
     return { ok: true, playerId: p.id };
   }
 
@@ -325,7 +370,9 @@ class Game {
     if (!p) return;
     if (this.phase === 'LOBBY') {
       this.players = this.players.filter(x => x !== p); // free the seat
+      if (this.hostPlayerId === p.id) this.hostPlayerId = this.humans()[0]?.id ?? null;
     } else {
+      this.gate?.press(p.id);
       p.connected = false;
       // Don't let a dropped phone freeze the game
       if (this.waiter?.playerId === p.id) this.waiter.finish(this.waiter.fallback);
@@ -381,11 +428,15 @@ class Game {
     this.broadcast();
     await wait(T.rollOffEnd);
     this.rollOff = null;
-    this.startRound();
+    await this.startRound();
   }
 
-  startRound() {
+  async startRound() {
     this.players.forEach(p => { p.roundColor = null; });
+    this.phase = 'TURN_SPLASH';
+    this.fx('turnSplash', { round: this.round, maxRounds: this.maxRounds, last: this.isLastTurn() });
+    this.broadcast();
+    await wait(T.turnSplash);
     if (this.isLastTurn()) this.announce('LAST TURN! Shops are closed and Item spaces are empty.', { icon: '🔥', tone: 'bad' });
     else if (this.round === this.maxRounds - FINAL_STRETCH_TURNS + 1) {
       this.announce(`Final ${FINAL_STRETCH_TURNS} turns! Blue & red spaces are now doubled.`, { icon: '🔥', tone: 'bad' });
@@ -404,6 +455,7 @@ class Game {
     this.pendingBoost = 0;
     this.turnItemUsed = false;
     this.turnKey = `${this.round}-${this.turnIndex}`;
+    this.boardViewer = null;
     const p = this.current();
     this.setAwaiting([p.id]);
     this.broadcast();
@@ -470,9 +522,9 @@ class Game {
     }
     if (id === 'banditCall') await banditEncounter(this, p);
     if (id === 'twister') {
-      this.moveStar();
-      this.announce('The Star got blown to a new spot!', { icon: '🌪️' });
+      this.announce('Twister! The Star is blowing away…', { icon: '🌪️' });
       await this.beat();
+      await this.relocateStar();
     }
 
     this.phase = 'ROLL';
@@ -532,6 +584,10 @@ class Game {
     await this.landOn(p);
     this.broadcast();
     await wait(T.afterLand);
+    // The player taps "End turn" when they're done looking
+    this.phase = 'TURN_END';
+    this.turnKey = `${this.round}-${this.turnIndex}-end`;
+    await this.waitForPress('endTurn', [p.id], 700);
     this.endTurn();
   }
 
@@ -601,8 +657,7 @@ class Game {
       p.stats.starsBought++;
       this.announce(`${p.name} got a Star!`, { icon: '⭐', tone: 'good', playerIds: [p.id] });
       await this.beat();
-      this.moveStar();
-      this.announce('The Star moved to a new spot!', { icon: '⭐' });
+      await this.relocateStar();
     }
     return this.beat();
   }
@@ -626,30 +681,41 @@ class Game {
   // Runs one minigame from intro to results.
   //   mode: 'ffa' | '2v2' | '1v3'; teams: { red: [ids], blue: [ids] } for team modes
   //   payout(rows, ctx) sets row.reward for each row
-  async playMinigame({ banner = null, mode = 'ffa', teams = null, payout }) {
+  async playMinigame({ banner = null, mode = 'ffa', teams = null, teamReveal = null, payout }) {
     const prevPhase = this.phase;
     const def = minigames.pick(mode, this.lastMinigameId);
     this.lastMinigameId = def.id;
     const cpuIds = new Set(this.players.filter(p => p.cpu).map(p => p.id));
     const state = def.setup(this.players);
     state.cpu = cpuIds;
-    this.minigame = { def, banner, mode, teams, state, endsAt: null, results: null, teamResult: null };
-    this.phase = 'MINIGAME_INTRO';
-    this.broadcast();
-    await wait(T.intro);
+    state.teams = teams;
+    this.minigame = { def, banner, mode, teams, teamReveal, state, endsAt: null, results: null, teamResult: null };
 
+    // 1) What kind of minigame + who's on which team (greens get randomized on screen)
+    if (teamReveal) {
+      this.phase = 'MINIGAME_TEAMS';
+      this.broadcast();
+      await wait(T.teams);
+    }
+    // 2) Name + rules; everyone taps Ready
+    this.phase = 'MINIGAME_INTRO';
+    this.turnKey = `${this.round}-mg-ready`;
+    await this.waitForPress('ready', this.players.map(p => p.id), 1500);
+
+    // 3) Play
     this.phase = 'MINIGAME';
     const now = Date.now();
     def.start(state, now);
     this.minigame.endsAt = now + def.durationMs / SPEED;
     this.broadcast();
-    const ticker = setInterval(() => {
+    while (Date.now() < this.minigame.endsAt && !def.isOver?.(state)) {
+      await sleep(Math.max(20, 200 / SPEED));
       const t = Date.now();
       cpuIds.forEach(id => def.cpu(state, id, t));
+      def.tick?.(state, t);
       this.broadcast(); // live scores
-    }, 200);
-    await wait(def.durationMs + 400); // a little grace for last inputs from phones
-    clearInterval(ticker);
+    }
+    await sleep(400 / SPEED); // a little grace for last inputs from phones
 
     // Rank individuals (ties share a place). "Valid" = actually scored, so nobody wins by doing nothing.
     const sign = def.better === 'lower' ? 1 : -1;
@@ -664,13 +730,15 @@ class Game {
       else row.place = prev && prev.valid && prev.score === row.score ? prev.place : i + 1;
     });
 
-    // Teams: average of each team's scores (non-scorers count as the worst score)
+    // Teams: average of each team's scores (non-scorers count as the worst score),
+    // unless the minigame scores teams itself (e.g. 1v3 hide & seek)
     if (teams) {
       const val = r => (r.valid ? r.score : def.better === 'lower' ? def.worst : 0);
+      const custom = def.teamScores?.(state, teams);
       const tr = {};
       for (const [color, ids] of Object.entries(teams)) {
         const mine = rows.filter(r => ids.includes(r.playerId));
-        const avg = mine.reduce((s, r) => s + val(r), 0) / Math.max(1, mine.length);
+        const avg = custom ? custom[color] : mine.reduce((s, r) => s + val(r), 0) / Math.max(1, mine.length);
         tr[color] = { ids, score: Math.round(avg * 10) / 10 };
         mine.forEach(r => { r.team = color; });
       }
@@ -702,6 +770,9 @@ class Game {
     }
     this.broadcast();
     await wait(T.results);
+    // Player 1 taps Next to carry on
+    this.turnKey = `${this.round}-mg-next`;
+    await this.waitForPress('next', [this.nextPresserId()], 2500);
     this.minigame = null;
     this.phase = prevPhase;
     return rows;
@@ -711,22 +782,22 @@ class Game {
   // Green spaces are randomly counted as red or blue. 4-0 → free-for-all, 3-1 → 1v3, 2-2 → 2v2.
   roundTeams() {
     const teams = { red: [], blue: [] };
+    const reveal = [];
     for (const p of this.players) {
-      let c = p.roundColor;
-      if (c !== 'red' && c !== 'blue') c = Math.random() < 0.5 ? 'red' : 'blue';
-      p.teamColor = c;
+      const landed = p.roundColor || 'green';
+      const c = landed === 'red' || landed === 'blue' ? landed : (Math.random() < 0.5 ? 'red' : 'blue');
       teams[c].push(p.id);
+      reveal.push({ playerId: p.id, landed, team: c });
     }
     const sizes = [teams.red.length, teams.blue.length].sort();
-    if (sizes[0] === 0) return { mode: 'ffa', teams: null };
-    if (sizes[0] === 1) return { mode: '1v3', teams };
-    return { mode: '2v2', teams };
+    const mode = sizes[0] === 0 ? 'ffa' : sizes[0] === 1 ? '1v3' : '2v2';
+    return { mode, teams: mode === 'ffa' ? null : teams, reveal };
   }
 
   async endOfRoundMinigame() {
-    const { mode, teams } = this.roundTeams();
+    const { mode, teams, reveal } = this.roundTeams();
     await this.playMinigame({
-      mode, teams,
+      mode, teams, teamReveal: reveal,
       payout: rows => rows.forEach(r => {
         if (teams) r.reward = r.won ? (this.minigame.teamResult.winner === 'tie' ? TEAM_REWARD / 2 : TEAM_REWARD) : 0;
         else r.reward = r.valid ? FFA_REWARDS[r.place - 1] ?? 0 : 0;
@@ -734,7 +805,7 @@ class Game {
     });
     if (this.round >= this.maxRounds) return this.finish();
     this.round++;
-    this.startRound();
+    await this.startRound();
   }
 
   // VS spaces: free-for-all, pot split by place (90% / 9% / 1% / 0%). Tied places share.
@@ -786,32 +857,57 @@ class Game {
       if (this.phase === 'MINIGAME') this.minigame.def.onInput(this.minigame.state, playerId, action.input, Date.now());
     } else if (action.type === 'nudge') {
       this.nudge(playerId, action.targetId);
+    } else if (action.type === 'press') {
+      if (this.gate && this.gate.kind === action.kind) this.gate.press(playerId);
+    } else if (action.type === 'viewBoard') {
+      this.boardViewer = action.open ? playerId : (this.boardViewer === playerId ? null : this.boardViewer);
+      this.broadcast();
     }
   }
 
   // ---------- ending ----------
 
-  finish() {
+  // End of game: reveal each bonus Star one at a time, then the standings from 4th to 1st
+  async finish() {
     const bonuses = [
-      { title: 'Minigame Star', stat: 'minigameWins', desc: 'most minigame wins' },
-      { title: 'Coin Star', stat: 'coinsEarned', desc: 'most coins earned' },
-      { title: 'Unlucky Star', stat: 'redSpaces', desc: 'most red spaces' },
+      { title: 'Minigame Star', stat: 'minigameWins', desc: 'most minigame wins', icon: '🏆' },
+      { title: 'Coin Star', stat: 'coinsEarned', desc: 'most coins earned', icon: '🪙' },
+      { title: 'Unlucky Star', stat: 'redSpaces', desc: 'most red spaces', icon: '🔴' },
     ].map(b => {
       const best = Math.max(...this.players.map(p => p.stats[b.stat]));
       const winners = best > 0 ? this.players.filter(p => p.stats[b.stat] === best) : [];
-      winners.forEach(p => { p.stars++; });
       return { ...b, value: best, playerIds: winners.map(p => p.id) };
     });
+    this.awaiting = null;
+    this.phase = 'FINALE';
+    this.finale = { step: 'intro', bonuses, index: -1, revealed: false, standings: null, shown: 0 };
+    this.broadcast();
+    await wait(T.finaleIntro);
+
+    for (let i = 0; i < bonuses.length; i++) {
+      Object.assign(this.finale, { step: 'bonus', index: i, revealed: false });
+      this.broadcast();
+      await wait(T.drumroll);
+      bonuses[i].playerIds.forEach(id => this.addStar(this.players.find(p => p.id === id), 1));
+      this.finale.revealed = true;
+      this.broadcast();
+      await wait(T.reveal);
+    }
 
     const standings = this.ranked().map(p => ({ playerId: p.id, stars: p.stars, coins: p.coins }));
-    standings.forEach((s, i) => {
+    standings.forEach((st, i) => {
       const prev = standings[i - 1];
-      s.place = prev && prev.stars === s.stars && prev.coins === s.coins ? prev.place : i + 1;
+      st.place = prev && prev.stars === st.stars && prev.coins === st.coins ? prev.place : i + 1;
     });
+    Object.assign(this.finale, { step: 'standings', standings, shown: 0 });
+    for (let k = 1; k <= standings.length; k++) {
+      this.finale.shown = k; // reveals from last place up to the winner
+      this.broadcast();
+      await wait(k === standings.length ? T.reveal * 1.6 : T.reveal);
+    }
 
     this.final = { bonuses, standings };
     this.phase = 'GAME_OVER';
-    this.awaiting = null;
     this.addLog(`🎉 ${this.nameOf(standings[0].playerId)} is the Superstar!`);
     this.broadcast();
   }
@@ -820,6 +916,7 @@ class Game {
   restart() {
     if (this.phase !== 'GAME_OVER') return;
     this.players = this.players.filter(p => p.connected && !p.cpu);
+    if (!this.players.some(p => p.id === this.hostPlayerId)) this.hostPlayerId = this.players[0]?.id ?? null;
     this.resetMatch();
     this.broadcast();
   }
@@ -835,7 +932,7 @@ class Game {
 
   publicState() {
     const mg = this.minigame;
-    const turnPhases = ['ROLL', 'ITEM', 'ITEM_TARGET', 'DISCARD', 'MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'CUSTOM_DICE', 'BANDIT', 'ROULETTE'];
+    const turnPhases = ['ROLL', 'ITEM', 'ITEM_TARGET', 'DISCARD', 'MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'CUSTOM_DICE', 'BANDIT', 'ROULETTE', 'TURN_END'];
     const a = this.awaiting;
     return {
       code: this.code,
@@ -847,6 +944,10 @@ class Game {
       finalStretch: this.phase !== 'LOBBY' && this.isFinalStretch(),
       starCost: STAR_COST,
       boardId: this.board.id,
+      hostPlayerId: this.hostPlayerId,
+      gate: this.gate && { kind: this.gate.kind, pending: [...this.gate.pending] },
+      finale: this.finale,
+      boardView: !!this.boardViewer,
       rareUnlockRound: this.rareUnlockRound(),
       turnPlayerId: turnPhases.includes(this.phase) && !mg ? this.current()?.id : null,
       turnItemUsed: this.turnItemUsed,
@@ -870,6 +971,7 @@ class Game {
         banner: mg.banner,
         mode: mg.mode,
         teams: mg.teams,
+        teamReveal: mg.teamReveal,
         instructions: mg.def.instructions,
         controls: mg.def.controls,
         config: mg.def.config,

@@ -82,7 +82,13 @@ window.Controls = (() => {
         update = m => {
           const me = m.live.perPlayer?.[window.ME];
           score.textContent = m.live.display?.[window.ME] ?? '';
-          if (!me || me.qid === shownQid) return;
+          if (!me) {
+            // Round-based games: between rounds, show what happened
+            if (shownQid !== 'wait') { shownQid = 'wait'; prompt.textContent = '👀 Watch the TV…'; prompt.dataset.size = 'md'; prompt.style.color = ''; opts.innerHTML = ''; }
+            if (m.live.view?.subtitle) prompt.textContent = m.live.view.subtitle;
+            return;
+          }
+          if (me.qid === shownQid) return;
           shownQid = me.qid;
           prompt.textContent = me.prompt.text;
           prompt.style.color = me.prompt.color || '';
@@ -266,6 +272,59 @@ window.Controls = (() => {
           info.textContent = `${p === 2 ? 'PERFECT!' : p === 1 ? 'Good' : 'Miss'}  ·  ${pts} pts`;
           if (p) send({ points: p });
         });
+        break;
+      }
+
+      case 'turns': {
+        // Turn-taking games: pick when it's your turn; otherwise watch what others pick
+        const head = h('div', 'big-info');
+        const opts = h('div', 'turn-options');
+        const log = h('div', 'turn-log');
+        el.append(head, opts, log);
+        let sig = null;
+        update = m => {
+          const t = m.live.turn;
+          log.innerHTML = (m.live.log || []).slice(-4).reverse().map(l => `<div>${l.replace(/[<>&]/g, '')}</div>`).join('');
+          const mine = t && t.playerId === window.ME;
+          const next = mine ? `${t.prompt}|${t.options.map(o => `${o.id}${o.disabled ? 'x' : ''}`).join(',')}` : `w|${t?.playerId}|${t?.prompt}`;
+          if (next === sig) { if (t) head.dataset.secs = t.secondsLeft; return; }
+          sig = next;
+          opts.innerHTML = '';
+          opts.classList.toggle('many', !!t && t.options.length > 12);
+          if (!t) { head.textContent = m.live.display?.[window.ME] ?? 'Done!'; return; }
+          if (!mine) { head.innerHTML = `⏳ <b>${window.nameOfId(t.playerId)}</b>: ${t.prompt}`; return; }
+          head.innerHTML = `👉 <b>Your turn!</b> ${t.prompt}`;
+          vibrate(60);
+          t.options.forEach(o => {
+            const b = h('button', 'turn-btn', o.label);
+            b.disabled = !!o.disabled;
+            press(b, () => { if (b.disabled) return; opts.querySelectorAll('button').forEach(x => { x.disabled = true; }); send({ choice: o.id }); });
+            opts.append(b);
+          });
+        };
+        update(mg);
+        break;
+      }
+
+      case 'pump': {
+        const balloon = h('div', 'balloon', '🎈');
+        const info = h('div', 'big-info', '0 pumps');
+        const row = h('div', 'alt-row');
+        const pump = h('button', 'alt-btn next', '💨 PUMP');
+        const cash = h('button', 'alt-btn', '🏦 BANK IT');
+        row.append(pump, cash);
+        el.append(balloon, info, row);
+        press(pump, () => send({ pump: true }));
+        press(cash, () => send({ cash: true }));
+        update = m => {
+          const me = m.live.perPlayer?.[window.ME];
+          if (!me) return;
+          balloon.style.fontSize = `${4 + me.n * 0.35}rem`;
+          if (me.popped) { balloon.textContent = '💥'; info.textContent = 'POPPED! 0 points'; pump.disabled = cash.disabled = true; }
+          else if (me.cashed) { info.textContent = `Banked ${me.n} points!`; pump.disabled = cash.disabled = true; }
+          else info.textContent = `${me.n} pumps`;
+        };
+        update(mg);
         break;
       }
 
