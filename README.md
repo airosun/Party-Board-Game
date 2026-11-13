@@ -81,7 +81,7 @@ Teams come from the color of the space each player landed on that round (**blue*
 
 | Type | Minigames |
 |---|---|
-| Turn-taking (free-for-all only) | **Key & Door** (pick a key + a door; watch everyone's tries; each escape changes the lock and throws out a wrong key; ends when all but one escape), **Wire Cutter**, **Number Bomb**, **Treasure Chests**, **Memory Match** |
+| Turn-taking (free-for-all only) | **Key & Door** (5 keys, 3 doors: three keys each open one specific door, two are duds. Pick a key + a door; everyone sees every try. An opened door and its key are removed; after the 2nd escape a dud is thrown out, so the last door is a 50/50), **Wire Cutter**, **Number Bomb**, **Treasure Chests**, **Memory Match** |
 | 1v3 only | **Hide & Seek**, **Bandit Ambush** |
 | 2v2 only | **Twin Sync** (tap together), **Math Relay** |
 | Teams only (2v2 or 1v3) | Tug of War |

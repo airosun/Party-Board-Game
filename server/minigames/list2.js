@@ -21,64 +21,67 @@ const KEYS = [
 ];
 const DOORS = [{ id: 'd1', label: '🚪 Left door' }, { id: 'd2', label: '🚪 Middle door' }, { id: 'd3', label: '🚪 Right door' }];
 
+// 5 keys, 3 doors. Three keys each open one specific door; the other two keys open nothing.
+// Open a door → that key and door are removed. After the 2nd door opens, one wrong key is
+// thrown out, so the last door is a 50/50. Every try (and whether it worked) is public.
 const keyDoor = turnGame({
   id: 'keyDoor', name: 'Key & Door',
-  instructions: 'Take turns: pick a key, then a door. One key opens one door. Watch what everyone tries! Each time someone escapes, the lock changes and a wrong key is thrown out.',
+  remainingLabel: 'Still locked in',
+  instructions: 'Take turns: pick a key, then a door. Three of the 5 keys each open one door; two keys are duds. Open a door to escape! Watch everyone\'s tries. After two doors open, a dud key is thrown out.',
   init(s) {
-    s.keys = KEYS.map(k => k.id);
-    s.tried = new Set();
-    s.pending = null; // key the current player picked
-    s.newLock = () => { s.lock = { key: pick(s.keys), door: pick(DOORS).id }; s.tried.clear(); };
-    s.newLock();
+    const keys = shuffle(KEYS.map(k => k.id));
+    const doors = shuffle(DOORS.map(d => d.id));
+    s.match = { [keys[0]]: doors[0], [keys[1]]: doors[1], [keys[2]]: doors[2] }; // keys[3], keys[4] are duds
+    s.duds = [keys[3], keys[4]];
+    s.keys = KEYS.map(k => k.id);   // keys still on the table
+    s.doors = DOORS.map(d => d.id); // doors still closed
+    s.tried = new Set();            // `${key}|${door}` that failed
+    s.pending = null;               // key the current player picked
   },
-  options(s) {
-    if (!s.pending) {
-      return s.keys.map(id => ({ id, label: KEYS.find(k => k.id === id).label, disabled: DOORS.every(d => s.tried.has(`${id}|${d.id}`)) }));
-    }
-    return DOORS.map(d => ({ id: d.id, label: d.label, disabled: s.tried.has(`${s.pending}|${d.id}`) }));
-  },
+  options: s => keyDoorOptions(s, true),
   prompt: s => (s.pending ? `Which door for the ${KEYS.find(k => k.id === s.pending).label}?` : 'Pick a key'),
   choose(s, id, choice) {
     const name = s.names[id];
     if (choice.startsWith('k')) { s.pending = choice; s.log.push(`${name} picks the ${KEYS.find(k => k.id === choice).label}…`); return 'again'; }
     const key = s.pending, keyLabel = KEYS.find(k => k.id === key).label, doorLabel = DOORS.find(d => d.id === choice).label;
     s.pending = null;
-    if (key === s.lock.key && choice === s.lock.door) {
+    if (s.match[key] === choice) {
       s.finished.push(id);
+      s.keys = s.keys.filter(k => k !== key);
+      s.doors = s.doors.filter(d => d !== choice);
       s.log.push(`🎉 ${name} opened the ${doorLabel} with the ${keyLabel}! Escaped!`);
-      const wrong = s.keys.filter(k => k !== key);
-      if (wrong.length > 1) {
-        const gone = pick(wrong);
-        s.keys = s.keys.filter(k => k !== gone);
-        s.log.push(`🗑️ The ${KEYS.find(k => k.id === gone).label} was thrown out. The lock changed!`);
+      if (s.finished.length === 2) {
+        const dud = pick(s.duds.filter(k => s.keys.includes(k)));
+        if (dud) {
+          s.keys = s.keys.filter(k => k !== dud);
+          s.log.push(`🗑️ The ${KEYS.find(k => k.id === dud).label} was a dud: thrown out! Last door is a 50/50.`);
+        }
       }
-      s.newLock();
     } else {
       s.tried.add(`${key}|${choice}`);
       s.log.push(`❌ ${name}: ${keyLabel} + ${doorLabel} didn't work`);
     }
     return 'next';
   },
-  cpuChoose(s) {
-    const opts = keyDoor.cfgOptions(s).filter(o => !o.disabled);
-    return pick(opts).id;
-  },
-  isOver: s => s.order.length - s.finished.length <= 1,
+  cpuChoose: s => pick(keyDoorOptions(s, false).filter(o => !o.disabled)).id,
+  isOver: s => s.order.length - s.finished.length <= 1 || !s.doors.length,
   view(s) {
     return {
-      title: `Keys left: ${s.keys.length} · Escaped: ${s.finished.map(id => s.names[id]).join(', ') || 'nobody yet'}`,
+      title: `Doors open: ${3 - s.doors.length} / 3 · Escaped: ${s.finished.map(id => s.names[id]).join(', ') || 'nobody yet'}`,
       grid: {
         rows: s.keys.map(id => KEYS.find(k => k.id === id).label),
-        cols: DOORS.map(d => d.label.replace('🚪 ', '')),
-        cells: s.keys.map(k => DOORS.map(d => (s.tried.has(`${k}|${d.id}`) ? '❌' : (s.pending === k ? '👀' : '')))),
+        cols: s.doors.map(d => DOORS.find(x => x.id === d).label.replace('🚪 ', '')),
+        cells: s.keys.map(k => s.doors.map(d => (s.tried.has(`${k}|${d}`) ? '❌' : (s.pending === k ? '👀' : '')))),
       },
     };
   },
 });
-keyDoor.cfgOptions = s => {
-  if (!s.pending) return s.keys.map(id => ({ id, disabled: DOORS.every(d => s.tried.has(`${id}|${d.id}`)) }));
-  return DOORS.map(d => ({ id: d.id, disabled: s.tried.has(`${s.pending}|${d.id}`) }));
-};
+// Keys you can still pick (not every remaining door already tried with it), then doors not yet tried with that key
+function keyDoorOptions(s, labels) {
+  const L = (list, id) => (labels ? { label: list.find(x => x.id === id).label } : {});
+  if (!s.pending) return s.keys.map(id => ({ id, ...L(KEYS, id), disabled: s.doors.every(d => s.tried.has(`${id}|${d}`)) }));
+  return s.doors.map(d => ({ id: d, ...L(DOORS, d), disabled: s.tried.has(`${s.pending}|${d}`) }));
+}
 
 const WIRE_COLORS = ['🔴 Red', '🔵 Blue', '🟢 Green', '🟡 Yellow', '🟣 Purple', '🟠 Orange'];
 const wireCutter = turnGame({

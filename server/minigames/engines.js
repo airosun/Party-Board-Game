@@ -165,7 +165,7 @@ const shuffle = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i
 // cfg.cpuChoose(s, id) → optionId
 // cfg.isOver(s), cfg.view(s) → { title, items:[{label, cls}], grid? }
 // cfg.scoring: 'places' (finish order, s.finished / s.out) or 'points' (s.points)
-function turnGame({ turnMs = 20000, durationMs = 300000, scoring = 'places', ...cfg }) {
+function turnGame({ turnMs = 20000, durationMs = 300000, scoring = 'places', remainingLabel = 'Last one standing', ...cfg }) {
   const active = s => s.order.filter(id => !s.finished.includes(id) && !s.out.includes(id));
   const def = base({
     controls: 'turns', durationMs, modes: ['ffa'], better: scoring === 'points' ? 'higher' : 'lower', worst: 99,
@@ -223,7 +223,7 @@ function turnGame({ turnMs = 20000, durationMs = 300000, scoring = 'places', ...
       if (scoring === 'points') return s.order.map(id => ({ playerId: id, score: s.points[id], display: `${s.points[id]} pts` }));
       // finished first (in order), then whoever is still in, then those knocked out (last out = better)
       const ranking = [...s.finished, ...active(s), ...[...s.out].reverse()];
-      return ranking.map((id, i) => ({ playerId: id, score: i + 1, display: s.finished.includes(id) ? `Escaped #${s.finished.indexOf(id) + 1}` : s.out.includes(id) ? 'Knocked out' : 'Last one standing' }));
+      return ranking.map((id, i) => ({ playerId: id, score: i + 1, display: s.finished.includes(id) ? `Escaped #${s.finished.indexOf(id) + 1}` : s.out.includes(id) ? 'Knocked out' : remainingLabel }));
     },
   });
   return def;
