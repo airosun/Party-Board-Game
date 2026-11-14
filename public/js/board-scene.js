@@ -7,7 +7,6 @@ const hex = c => Phaser.Display.Color.HexStringToColor(c).color;
 const shade = (c, pct) => Phaser.Display.Color.HexStringToColor(c).darken(pct).color;
 const css = n => `#${n.toString(16).padStart(6, '0')}`;
 const FONT = '"Lilita One", "Nunito", system-ui, sans-serif';
-const EMOJI = /\p{Extended_Pictographic}/u;
 const MOVE_PHASES = ['MOVING', 'JUNCTION', 'STAR_PROMPT', 'SHOP', 'BANDIT', 'DISCARD'];
 
 // Small seeded random generator so each board's scenery is the same every time
@@ -22,34 +21,53 @@ const distToSeg = (px, py, a, b) => {
   return Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
 };
 
+const LAND_DECOR = ['🌴', '🌴', '🌳', '🌳', '🌲', '🌼', '🌺', '🪨', '🏠', '🍄', '🌴', '🌻'];
+const SEA_DECOR = ['⛵', '🐟', '🐠', '🐳', '🛶', '⛵'];
+const FX_EMOJI = ['⭐', '✨', '🪙', '🏦', '🎁'];
+
 class BoardScene extends Phaser.Scene {
   constructor() {
     super('board');
     this.tokens = new Map();    // playerId -> { container, halo, pawn, nodeId }
-    this.nodeViews = new Map(); // nodeId -> { gfx, label, sub, type }
+    this.nodeViews = new Map(); // nodeId -> { gfx, label, img, sub, type }
     this.activeId = null;
     this.camMode = 'overview';
+    this.bg = [];               // static scenery objects, baked into one image after drawing
   }
 
   init(data) {
     this.boardData = data.board;
     this.spaceTypes = data.spaceTypes; // from server/spaces.js (name, color, icon, passOnly)
+    this.itemsMeta = data.items || {};
     this.onReady = data.onReady;
     this.nodes = new Map(this.boardData.nodes.map(n => [n.id, n]));
     this.edges = [];
     for (const n of this.boardData.nodes) for (const id of n.next) this.edges.push([n, this.nodes.get(id)]);
   }
 
+  // Load every emoji the board can draw as a Twemoji image, so it looks the same on any device
+  preload() {
+    const set = new Set([...LAND_DECOR, ...SEA_DECOR, ...FX_EMOJI]);
+    const add = text => Emoji.all(text || '').forEach(e => set.add(e));
+    Object.values(this.spaceTypes).forEach(t => add(t.icon));
+    Object.values(this.itemsMeta).forEach(it => add(it.icon));
+    (this.boardData.decor || []).forEach(d => add(d.text));
+    for (const e of set) {
+      if (!this.textures.exists(this.emojiKey(e))) this.load.svg(this.emojiKey(e), Emoji.url(e), { width: 96, height: 96 });
+    }
+  }
+
   create() {
     const { width: W, height: H } = this.boardData;
     this.cameras.main.setBounds(0, 0, W, H);
+    // Static background: drawn once, then flattened into a single image (nothing animates)
     this.drawSea();
     this.drawLand();
     this.drawRoads();
     this.drawScenery();
-    this.drawSpaces();
     this.drawDecorText();
-    this.drawClouds();
+    this.bakeBackground();
+    this.drawSpaces();
 
     // The Star: spinning rays + glow, sitting on the path between two spaces
     this.starRays = this.add.graphics().setDepth(4).setVisible(false);
@@ -61,30 +79,57 @@ class BoardScene extends Phaser.Scene {
     this.tweens.add({ targets: this.starRays, angle: 360, repeat: -1, duration: 9000 });
     this.starGlow = this.add.circle(0, 0, 34, 0xfff3b0, 0.55).setDepth(4).setVisible(false);
     this.tweens.add({ targets: this.starGlow, scale: 1.7, alpha: 0, repeat: -1, duration: 1300 });
-    this.star = this.add.text(0, 0, '⭐', { fontSize: '58px' }).setOrigin(0.5).setDepth(5).setVisible(false);
-    this.tweens.add({ targets: this.star, scale: 1.15, yoyo: true, repeat: -1, duration: 650, ease: 'Sine.easeInOut' });
+    this.star = this.icon(0, 0, '⭐', 62).setDepth(5).setVisible(false);
+    this.starScale = this.star.scale;
+    this.tweens.add({ targets: this.star, scale: this.starScale * 1.15, yoyo: true, repeat: -1, duration: 650, ease: 'Sine.easeInOut' });
 
-    this.bankTexts = this.boardData.nodes.filter(n => n.type === 'bank').map(n => this.add.text(n.x, n.y - 56, '', {
-      fontFamily: FONT, fontSize: '22px', color: '#ffe066', stroke: '#3a2400', strokeThickness: 6,
-    }).setOrigin(0.5).setDepth(6));
+    // Bank totals (all Banks share one pot)
+    this.bankNodes = this.boardData.nodes.filter(n => n.type === 'bank');
+    this.bankViews = [];
+    this.bankValue = null;
 
     this.onReady?.(this);
   }
 
-  // ---------- scenery ----------
+  // ---------- emoji helpers ----------
+
+  emojiKey(e) { return `emoji-${e}`; }
+
+  // One emoji as an image (falls back to plain text if the image is missing)
+  icon(x, y, e, size) {
+    const key = this.emojiKey(e);
+    if (this.textures.exists(key)) return this.add.image(x, y, key).setDisplaySize(size, size);
+    return this.add.text(x, y, e, { fontSize: `${Math.round(size * 0.8)}px` }).setOrigin(0.5);
+  }
+
+  // Text that may contain emoji: words as text, emoji as images, laid out in a row
+  richText(x, y, str, style, size) {
+    const objs = Emoji.split(str).map(p => (p.emoji ? this.icon(0, 0, p.emoji, size) : this.add.text(0, 0, p.text, style).setOrigin(0.5)));
+    const widths = objs.map(o => o.displayWidth);
+    let cx = -widths.reduce((a, b) => a + b, 0) / 2;
+    objs.forEach((o, i) => { o.setPosition(cx + widths[i] / 2, 0); cx += widths[i]; });
+    return this.add.container(x, y, objs);
+  }
+
+  // ---------- scenery (static) ----------
 
   drawSea() {
     const { width: W, height: H } = this.boardData;
     const g = this.add.graphics().setDepth(-10);
     g.fillGradientStyle(0x1b6ca8, 0x1b6ca8, 0x0b3c5d, 0x0b3c5d, 1).fillRect(0, 0, W, H);
+    // Little wave marks in open water
     const rnd = seeded(this.boardData.id + 'sea');
-    // Little animated wave marks in open water
+    g.lineStyle(3, 0xbde0fe, 0.22);
     for (let i = 0; i < 70; i++) {
-      const x = rnd() * W, y = rnd() * H;
+      const x = rnd() * W, y = rnd() * H, r = 7 + rnd() * 5;
       if (this.nearLand(x, y, 150)) continue;
-      const w = this.add.text(x, y, '〰', { fontSize: `${18 + rnd() * 14}px`, color: '#bde0fe' }).setAlpha(0.25).setDepth(-9);
-      this.tweens.add({ targets: w, x: x + 14, alpha: 0.05, yoyo: true, repeat: -1, duration: 1800 + rnd() * 1800, delay: rnd() * 2000 });
+      for (const dx of [0, r * 1.8]) {
+        g.beginPath();
+        g.arc(x + dx, y, r, Math.PI * 1.15, Math.PI * 1.85);
+        g.strokePath();
+      }
     }
+    this.bg.push(g);
   }
 
   nearLand(x, y, d) {
@@ -104,6 +149,7 @@ class BoardScene extends Phaser.Scene {
       g.lineStyle(L.w, L.color, L.alpha).fillStyle(L.color, L.alpha);
       for (const [a, b] of this.edges) g.lineBetween(a.x, a.y, b.x, b.y);
       for (const n of this.boardData.nodes) g.fillCircle(n.x, n.y, L.w / 2);
+      this.bg.push(g);
     }
     // Grass texture: soft darker blotches
     const rnd = seeded(this.boardData.id + 'grass');
@@ -114,6 +160,7 @@ class BoardScene extends Phaser.Scene {
       const ang = Math.atan2(b.y - a.y, b.x - a.x) + Math.PI / 2;
       g.fillStyle(rnd() < 0.5 ? 0x40916c : 0x74c69d, 0.35).fillCircle(a.x + (b.x - a.x) * t + Math.cos(ang) * off, a.y + (b.y - a.y) * t + Math.sin(ang) * off, 6 + rnd() * 12);
     }
+    this.bg.push(g);
   }
 
   drawRoads() {
@@ -134,6 +181,7 @@ class BoardScene extends Phaser.Scene {
       const ang = Math.atan2(b.y - a.y, b.x - a.x), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, s = 10;
       g.fillStyle(0x9c6644, 1).fillTriangle(cx + Math.cos(ang) * s, cy + Math.sin(ang) * s, cx + Math.cos(ang + 2.4) * s, cy + Math.sin(ang + 2.4) * s, cx + Math.cos(ang - 2.4) * s, cy + Math.sin(ang - 2.4) * s);
     }
+    this.bg.push(g);
   }
 
   drawScenery() {
@@ -143,7 +191,6 @@ class BoardScene extends Phaser.Scene {
       && !this.edges.some(([a, b]) => distToSeg(x, y, a, b) < gap)
       && !placed.some(p => Math.hypot(p.x - x, p.y - y) < 40)
       && !(this.boardData.decor || []).some(d => Math.abs(d.x - x) < 120 && Math.abs(d.y - y) < 30);
-    const land = ['🌴', '🌴', '🌳', '🌳', '🌲', '🌼', '🌺', '🪨', '🏠', '🍄', '🌴', '🌻'];
     // Scenery on the grass beside the roads
     for (let i = 0; i < 400 && placed.length < 70; i++) {
       const [a, b] = this.edges[Math.floor(rnd() * this.edges.length)];
@@ -152,9 +199,9 @@ class BoardScene extends Phaser.Scene {
       const x = a.x + (b.x - a.x) * t + Math.cos(ang) * off, y = a.y + (b.y - a.y) * t + Math.sin(ang) * off;
       if (!free(x, y, 36)) continue;
       placed.push({ x, y });
-      const e = land[Math.floor(rnd() * land.length)];
-      const t2 = this.add.text(x, y, e, { fontSize: `${24 + rnd() * 14}px` }).setOrigin(0.5, 0.85).setDepth(-5 + y / 10000);
-      if (e === '🌴' || e === '🌳') this.tweens.add({ targets: t2, angle: { from: -3, to: 3 }, yoyo: true, repeat: -1, duration: 2200 + rnd() * 1500, ease: 'Sine.easeInOut' });
+      const e = LAND_DECOR[Math.floor(rnd() * LAND_DECOR.length)];
+      const size = 28 + rnd() * 16;
+      this.bg.push(this.icon(x, y - size * 0.35, e, size).setDepth(-5 + y / 10000));
     }
     // Things in the sea
     const { width: W, height: H } = this.boardData;
@@ -163,19 +210,7 @@ class BoardScene extends Phaser.Scene {
       const x = 40 + rnd() * (W - 80), y = 40 + rnd() * (H - 80);
       if (this.nearLand(x, y, 130)) continue;
       boats++;
-      const e = ['⛵', '🐟', '🐠', '🐳', '🛶', '⛵'][boats % 6];
-      const s = this.add.text(x, y, e, { fontSize: `${26 + rnd() * 12}px` }).setOrigin(0.5).setDepth(-5);
-      this.tweens.add({ targets: s, y: y - 8, angle: { from: -4, to: 4 }, yoyo: true, repeat: -1, duration: 1700 + rnd() * 1200, ease: 'Sine.easeInOut' });
-    }
-  }
-
-  drawClouds() {
-    const { width: W } = this.boardData;
-    const rnd = seeded(this.boardData.id + 'cloud');
-    for (let i = 0; i < 4; i++) {
-      const y = 60 + rnd() * (this.boardData.height - 120);
-      const c = this.add.text(-200 - rnd() * W, y, '☁️', { fontSize: `${80 + rnd() * 60}px` }).setAlpha(0.55).setDepth(60);
-      this.tweens.add({ targets: c, x: W + 200, repeat: -1, duration: 60000 + rnd() * 40000, delay: rnd() * 20000 });
+      this.bg.push(this.icon(x, y, SEA_DECOR[boats % SEA_DECOR.length], 30 + rnd() * 12).setDepth(-5));
     }
   }
 
@@ -183,14 +218,26 @@ class BoardScene extends Phaser.Scene {
     if (this.boardData.decor) {
       for (const d of this.boardData.decor) {
         const big = (d.size || 24) >= 40;
-        this.add.text(d.x, d.y, d.text, {
-          fontFamily: FONT, fontSize: `${d.size || 24}px`, color: big ? '#ffffff' : '#fefae0',
+        const size = d.size || 24;
+        const c = this.richText(d.x, d.y, d.text, {
+          fontFamily: FONT, fontSize: `${size}px`, color: big ? '#ffffff' : '#fefae0',
           stroke: big ? '#0b3c5d' : '#1b4332', strokeThickness: big ? 10 : 6,
-        }).setOrigin(0.5).setAlpha(big ? 0.85 : Math.max(0.85, d.alpha ?? 1)).setDepth(3);
+        }, size * 1.1).setAlpha(big ? 0.85 : Math.max(0.85, d.alpha ?? 1)).setDepth(3);
+        this.bg.push(c);
       }
     } else {
-      this.add.text(24, 20, this.boardData.name, { fontFamily: FONT, fontSize: '34px', color: '#fff', stroke: '#0b3c5d', strokeThickness: 8 }).setDepth(3);
+      this.bg.push(this.add.text(24, 20, this.boardData.name, { fontFamily: FONT, fontSize: '34px', color: '#fff', stroke: '#0b3c5d', strokeThickness: 8 }).setDepth(3));
     }
+  }
+
+  // Flatten everything static into one texture: far less work per frame than ~150 objects
+  bakeBackground() {
+    const { width: W, height: H } = this.boardData;
+    const rt = this.add.renderTexture(0, 0, W, H).setOrigin(0, 0).setDepth(-10);
+    const objs = [...this.bg].sort((a, b) => a.depth - b.depth);
+    rt.draw(objs);
+    objs.forEach(o => o.destroy());
+    this.bg = [];
   }
 
   // ---------- spaces ----------
@@ -200,12 +247,27 @@ class BoardScene extends Phaser.Scene {
       const view = {
         gfx: this.add.graphics().setDepth(1),
         label: this.add.text(n.x, n.y, '', {}).setOrigin(0.5).setDepth(2),
+        img: null,
         sub: this.add.text(n.x, n.y, '', {}).setOrigin(0.5).setDepth(2),
         type: null,
       };
       this.nodeViews.set(n.id, view);
       this.paintNode(n.id, n.type);
     }
+  }
+
+  // Put either an emoji image or text on a space
+  setSpaceLabel(v, x, y, icon, size, style) {
+    const e = Emoji.all(icon);
+    if (e.length === 1 && e[0] === icon.replace(/\s/g, '')) {
+      v.label.setVisible(false);
+      v.img?.destroy();
+      v.img = this.icon(x, y, e[0], size).setDepth(2);
+    } else {
+      v.img?.destroy(); v.img = null;
+      v.label.setVisible(true).setPosition(x, y).setText(icon).setStyle(style);
+    }
+    return v.img || v.label;
   }
 
   // (Re)draw one space. Real spaces are glossy 3D discs; pass-only things (shops, the Bandit)
@@ -228,7 +290,7 @@ class BoardScene extends Phaser.Scene {
       g.lineStyle(3, 0x583101, 1).strokeRoundedRect(sx - 36, sy - 26, 72, 50, 10);
       g.fillStyle(hex(color), 1).fillRoundedRect(sx - 28, sy - 19, 56, 36, 8);  // colored panel
       g.fillStyle(0xffffff, 0.25).fillRoundedRect(sx - 26, sy - 17, 52, 10, 5);
-      v.label.setPosition(sx, sy - 1).setText(icon).setStyle({ fontSize: '28px' });
+      this.setSpaceLabel(v, sx, sy - 1, icon, 30, { fontSize: '28px' });
       v.sub.setPosition(sx, sy - 40).setText((meta.name || '').toUpperCase())
         .setStyle({ fontFamily: FONT, fontSize: '15px', color: '#fefae0', stroke: '#3a2400', strokeThickness: 5 });
       return;
@@ -243,16 +305,15 @@ class BoardScene extends Phaser.Scene {
     g.lineStyle(2, 0xffffff, 0.3).strokeCircle(n.x, n.y, r - 7);
     g.fillStyle(0xffffff, 0.35).fillEllipse(n.x - r * 0.28, n.y - r * 0.45, r * 0.9, r * 0.38); // shine
     if (start) { g.lineStyle(4, 0xffffff, 1).strokeCircle(n.x, n.y, r + 6); }
-    const emoji = EMOJI.test(icon);
-    v.label.setPosition(n.x, n.y + 1).setText(start ? 'START' : icon).setStyle({
+    const label = this.setSpaceLabel(v, n.x, n.y + 1, start ? 'START' : icon, 32, {
       fontFamily: FONT,
-      fontSize: start ? '17px' : emoji ? '28px' : icon.length > 1 ? '22px' : '30px',
+      fontSize: start ? '17px' : icon.length > 1 ? '22px' : '30px',
       color: start ? '#5c3d00' : '#ffffff',
       stroke: start ? '#fff3b0' : css(shade(color, 45)),
-      strokeThickness: emoji ? 0 : 5,
+      strokeThickness: 5,
     });
     v.sub.setText('');
-    if (changed) this.tweens.add({ targets: v.label, scale: 1.7, yoyo: true, duration: 260 });
+    if (changed) this.tweens.add({ targets: label, scale: label.scale * 1.7, yoyo: true, duration: 260 });
   }
 
   // ---------- pawns ----------
@@ -291,7 +352,15 @@ class BoardScene extends Phaser.Scene {
   applyState(s) {
     this.lastState = s;
     for (const n of this.boardData.nodes) this.paintNode(n.id, s.spaceOverrides?.[n.id] ?? n.type);
-    this.bankTexts.forEach(t => t.setText(s.phase === 'LOBBY' ? '' : `🏦 ${s.bank}`));
+    // Bank totals: only rebuilt when the amount changes
+    const bankLabel = s.phase === 'LOBBY' ? null : s.bank;
+    if (bankLabel !== this.bankValue) {
+      this.bankValue = bankLabel;
+      this.bankViews.forEach(v => v.destroy());
+      this.bankViews = bankLabel === null ? [] : this.bankNodes.map(n => this.richText(n.x, n.y - 56, `🏦 ${bankLabel}`, {
+        fontFamily: FONT, fontSize: '22px', color: '#ffe066', stroke: '#3a2400', strokeThickness: 6,
+      }, 26).setDepth(6));
+    }
 
     // Star
     const starObjs = [this.star, this.starGlow, this.starRays];
@@ -416,9 +485,9 @@ class BoardScene extends Phaser.Scene {
   // Floating text that rises from a player's pawn
   floatText(playerId, text, color = '#ffffff', size = 36) {
     const { x, y } = this.tokenXY(playerId);
-    const t = this.add.text(x, y - 60, text, {
+    const t = this.richText(x, y - 60, text, {
       fontFamily: FONT, fontSize: `${size}px`, color, stroke: '#1d1d1d', strokeThickness: 8,
-    }).setOrigin(0.5).setDepth(70).setScale(0.3);
+    }, size * 1.05).setDepth(70).setScale(0.3);
     this.tweens.add({ targets: t, scale: 1, duration: 260, ease: 'Back.easeOut' });
     this.tweens.add({ targets: t, y: y - 140, alpha: 0, delay: 1000, duration: 900, onComplete: () => t.destroy() });
   }
@@ -428,7 +497,7 @@ class BoardScene extends Phaser.Scene {
     const { x, y } = this.tokenXY(playerId);
     const n = Math.min(10, Math.max(3, Math.abs(amount)));
     for (let i = 0; i < n; i++) {
-      const c = this.add.text(x, y - 30, '🪙', { fontSize: '22px' }).setOrigin(0.5).setDepth(65);
+      const c = this.icon(x, y - 30, '🪙', 24).setDepth(65);
       const dx = (Math.random() - 0.5) * 120;
       if (amount > 0) {
         this.tweens.add({ targets: c, x: x + dx, y: y - 80 - Math.random() * 60, alpha: 0, duration: 800 + Math.random() * 300, ease: 'Quad.easeOut', onComplete: () => c.destroy() });
@@ -455,7 +524,7 @@ class BoardScene extends Phaser.Scene {
     this.floatText(playerId, amount > 0 ? `+${amount} ⭐` : `${amount} ⭐`, amount > 0 ? '#ffe066' : '#ff8a8a', 56);
     if (amount > 0) {
       for (let i = 0; i < 14; i++) {
-        const s = this.add.text(x, y - 30, i % 2 ? '✨' : '⭐', { fontSize: '30px' }).setOrigin(0.5).setDepth(66);
+        const s = this.icon(x, y - 30, i % 2 ? '✨' : '⭐', 32).setDepth(66);
         const a = (i / 14) * Math.PI * 2;
         this.tweens.add({ targets: s, x: x + Math.cos(a) * 150, y: y - 30 + Math.sin(a) * 150, alpha: 0, angle: 180, duration: 1000, onComplete: () => s.destroy() });
       }

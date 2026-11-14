@@ -208,18 +208,25 @@ function drawMap(s) {
   const svgBox = $('map-svg').getBoundingClientRect();
   const rotate = svgBox.height > svgBox.width && b.width > b.height;
   const up = (x, y) => (rotate ? ` transform="rotate(-90 ${x} ${y})"` : ''); // keep icons upright
+  // Emoji as Twemoji images; anything else (+, −, VS, GO) as text
+  const ic = (x, y, label, size = 30) => {
+    const e = Emoji.all(label);
+    return e.length && e.join('') === label.replace(/\s/g, '')
+      ? `<image href="${Emoji.url(e[0])}" x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}"${up(x, y)}/>`
+      : `<text x="${x}" y="${y + 2}" class="ic"${up(x, y)}>${esc(label)}</text>`;
+  };
   const byId = Object.fromEntries(b.nodes.map(n => [n.id, n]));
   const lines = b.nodes.flatMap(n => n.next.map(id => `<line x1="${n.x}" y1="${n.y}" x2="${byId[id].x}" y2="${byId[id].y}"/>`)).join('');
   const spaces = b.nodes.map(n => {
     const meta = SPACE_TYPES[type(n)] || {};
-    if (meta.passOnly) return `<rect x="${n.x - 22}" y="${n.y - 22}" width="44" height="44" rx="8" fill="${meta.color}" stroke="#fff" stroke-width="4"/><text x="${n.x}" y="${n.y + 2}" class="ic"${up(n.x, n.y)}>${meta.icon}</text>`;
-    return `<circle cx="${n.x}" cy="${n.y}" r="${type(n) === 'start' ? 34 : 26}" fill="${type(n) === 'start' ? '#ffd166' : meta.color}" stroke="#fff" stroke-width="4"/><text x="${n.x}" y="${n.y + 2}" class="ic"${up(n.x, n.y)}>${type(n) === 'start' ? 'GO' : meta.icon}</text>`;
+    if (meta.passOnly) return `<rect x="${n.x - 22}" y="${n.y - 22}" width="44" height="44" rx="8" fill="${meta.color}" stroke="#fff" stroke-width="4"/>${ic(n.x, n.y, meta.icon)}`;
+    return `<circle cx="${n.x}" cy="${n.y}" r="${type(n) === 'start' ? 34 : 26}" fill="${type(n) === 'start' ? '#ffd166' : meta.color}" stroke="#fff" stroke-width="4"/>${ic(n.x, n.y, type(n) === 'start' ? 'GO' : meta.icon)}`;
   }).join('');
   let star = '';
   if (s.star) {
     const a = byId[s.star.from], c = byId[s.star.to];
     const sx = (a.x + c.x) / 2, sy = (a.y + c.y) / 2;
-    star = `<text x="${sx}" y="${sy}" class="star"${up(sx, sy)}>⭐</text>`;
+    star = ic(sx, sy, '⭐', 64);
   }
   const pawns = s.players.map((p, i) => {
     const n = byId[p.pos]; const [dx, dy] = [[-16, -16], [16, -16], [-16, 16], [16, 16]][i % 4];

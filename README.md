@@ -31,13 +31,17 @@ New Web Service → this repo → Build `npm install`, Start `npm start`. WebSoc
 | Minigames | 41 of them, after every round. **Free-for-all, 2v2 or 1v3** depending on the space colors everyone landed on. Flow: teams screen (green players get randomized on screen) → rules screen where everyone taps **Ready** → play → results, then **Player 1** taps **Next** |
 | Turns | A big **TURN 3** splash starts each round. After moving, each player taps **End turn** to pass to the next player. During any decision, **🗺️ View board** shows the whole board on your phone (and the TV zooms out) |
 | Player 1 | The first person to join (👑). They tap Next after minigames. If they drop, anyone can |
-| Look | The board is drawn as an island: beaches, grass, sandy roads, palm trees, boats and drifting clouds. Spaces are glossy 3D discs, shops and the Bandit are wooden signposts, players are pawns, the camera zooms in to follow whoever is moving. Game fonts (Lilita One + Nunito), title screen with seats, prize-wheel roulette, podium results, confetti |
+| Look | The board is drawn as an island: beaches, grass, sandy roads, palm trees and boats (drawn once into a single image, no background animation, so it runs well on slower TVs/laptops). Spaces are glossy 3D discs, shops and the Bandit are wooden signposts, players are pawns, the camera zooms in to follow whoever is moving. Game fonts (Lilita One + Nunito), title screen with seats, prize-wheel roulette, podium results, confetti |
 | Animations | Big dice roll on the TV and your phone, floating +/− coins, item and Star pop-ups, flashing token for whoever's turn it is, big announcements (robberies, Stars, item uses) |
 | Turn counter | Big "TURN 3 / 10 · 7 turns left" on the TV; turn pill on phones; LAST TURN warning |
 | No time limits | Nobody gets auto-skipped. After 1 minute of waiting, other players get a **👉 Nudge** button (once each per turn) that pops up on the slow player's phone and vibrates it |
 | Last turn | Shops closed, Item spaces empty, Lucky spaces can't give items |
 | Ending | Each bonus Star revealed one at a time (drumroll!), then standings revealed from 4th up to the winner, then a full **stats table** (rolls, spaces, coins earned/lost/spent/stolen, items, minigame wins); each phone shows your own stats |
 | Reconnects | Phones rejoin automatically after locking/refreshing; a dropped player's decisions are auto-picked so the game never freezes |
+
+## Emoji on every device
+
+All emoji (on the TV, phones, the prize wheel and the board itself) are drawn with **Twemoji** images served by this server (`/twemoji`), so they look the same on iPhone, Android, Windows, Mac and smart-TV browsers, and newer emoji never show up as empty boxes on older devices. `public/js/emoji.js` swaps emoji in the page for images automatically; the board scene preloads the ones it draws.
 
 ## Spaces
 

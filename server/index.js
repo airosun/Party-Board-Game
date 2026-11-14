@@ -15,6 +15,9 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/vendor', express.static(path.join(__dirname, '..', 'node_modules', 'phaser', 'dist')));
 app.use('/fonts', express.static(path.join(__dirname, '..', 'node_modules', '@fontsource')));
+// Twemoji: one emoji art set for every device, so icons never show up as blank boxes
+app.use('/twemoji', express.static(path.join(__dirname, '..', 'node_modules', '@twemoji', 'svg'), { maxAge: '7d' }));
+app.get('/vendor/twemoji.min.js', (_, res) => res.sendFile(path.join(__dirname, '..', 'node_modules', '@twemoji', 'api', 'dist', 'twemoji.min.js')));
 app.get('/health', (_, res) => res.send('ok'));
 
 const games = new Map();

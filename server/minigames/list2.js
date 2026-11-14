@@ -153,7 +153,7 @@ const memoryMatch = turnGame({
   id: 'memoryMatch', name: 'Memory Match', scoring: 'points',
   instructions: 'Take turns flipping two cards. Find a matching pair to score and go again! Watch the others\' flips.',
   init(s) { s.cards = shuffle([...FACES, ...FACES]); s.matched = new Set(); s.first = null; s.showing = []; s.seen = {}; },
-  options: s => s.cards.map((_, i) => ({ id: `m${i}`, label: s.matched.has(i) ? `✅ ${s.cards[i]}` : s.first === i ? s.cards[i] : `🂠 ${i + 1}`, disabled: s.matched.has(i) || s.first === i })),
+  options: s => s.cards.map((_, i) => ({ id: `m${i}`, label: s.matched.has(i) ? `✅ ${s.cards[i]}` : s.first === i ? s.cards[i] : `🃏 ${i + 1}`, disabled: s.matched.has(i) || s.first === i })),
   prompt: s => (s.first === null ? 'Flip a card' : `You flipped ${s.cards[s.first]}. Find its match!`),
   choose(s, id, choice, now) {
     const i = Number(choice.slice(1));
@@ -187,7 +187,7 @@ const memoryMatch = turnGame({
     return `m${pick(open)}`;
   },
   isOver: s => s.matched.size === s.cards.length,
-  view: s => ({ title: `🃏 Pairs found: ${s.matched.size / 2} / ${FACES.length}`, items: s.cards.map((c, i) => ({ label: s.matched.has(i) || s.showing.includes(i) || s.first === i ? c : '🂠', cls: s.matched.has(i) ? 'open' : s.showing.includes(i) || s.first === i ? 'hit' : '' })) }),
+  view: s => ({ title: `🃏 Pairs found: ${s.matched.size / 2} / ${FACES.length}`, items: s.cards.map((c, i) => ({ label: s.matched.has(i) || s.showing.includes(i) || s.first === i ? c : '🃏', cls: s.matched.has(i) ? 'open' : s.showing.includes(i) || s.first === i ? 'hit' : '' })) }),
 });
 
 // ---------- 1v3 only ----------

@@ -52,10 +52,10 @@ function quiz({ penalty = 1, durationMs = 20000, cpuAccuracy = 0.75, cpuSpeed = 
     },
     publicState: s => ({
       scores: Object.fromEntries(Object.entries(s.p).map(([id, ps]) => [id, ps.score])),
-      display: Object.fromEntries(Object.entries(s.p).map(([id, ps]) => [id, `${ps.right} ✓  ${ps.wrong} ✗`])),
+      display: Object.fromEntries(Object.entries(s.p).map(([id, ps]) => [id, `✅ ${ps.right}  ❌ ${ps.wrong}`])),
       perPlayer: Object.fromEntries(Object.entries(s.p).map(([id, ps]) => [id, ps.q && { qid: ps.q.qid, prompt: ps.q.prompt, options: ps.q.options }])),
     }),
-    getResults: s => Object.entries(s.p).map(([playerId, ps]) => ({ playerId, score: ps.score, display: `${ps.score} pts (${ps.right}✓ ${ps.wrong}✗)` })),
+    getResults: s => Object.entries(s.p).map(([playerId, ps]) => ({ playerId, score: ps.score, display: `${ps.score} pts (${ps.right} right, ${ps.wrong} wrong)` })),
   });
 }
 

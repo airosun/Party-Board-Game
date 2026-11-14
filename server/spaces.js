@@ -234,7 +234,7 @@ const SPACES = {
       await game.roulette(p, `🔃 ${a.name} and…`, game.players.filter(o => o !== a).map(o => ({
         label: o.name, weight: 1, run: () => { b = o; return `…${o.name}!`; },
       })));
-      await game.roulette(p, `🔃 ${a.name} ⇄ ${b.name}: what happens?`, [
+      await game.roulette(p, `🔃 ${a.name} & ${b.name}: what happens?`, [
         { label: 'Swap coins', weight: 2, run: () => { const d = b.coins - a.coins; game.give(a, d); game.give(b, -d); return `${a.name} and ${b.name} swapped coins!`; } },
         { label: 'Swap Stars', weight: 1, run: () => { const d = b.stars - a.stars; game.addStar(a, d); game.addStar(b, -d); return `${a.name} and ${b.name} swapped Stars!!`; } },
         { label: 'Swap spaces', weight: 2, run: () => { [a.pos, b.pos] = [b.pos, a.pos]; return `${a.name} and ${b.name} swapped places!`; } },

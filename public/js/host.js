@@ -59,7 +59,7 @@ function makeGame(board) {
     scene: [],
     callbacks: {
       postBoot: game => game.scene.add('board', BoardScene, true, {
-        board, spaceTypes: SPACE_TYPES,
+        board, spaceTypes: SPACE_TYPES, items: ITEMS,
         onReady: s => { scene = s; if (latest) scene.applyState(latest); },
       }),
     },
@@ -415,20 +415,25 @@ function renderRoulette(r) {
     const slices = r.labels.map((label, i) => {
       const [x1, y1] = pt(i * seg), [x2, y2] = pt((i + 1) * seg);
       const mid = i * seg + seg / 2;
-      const text = label.length > 22 ? `${label.slice(0, 21)}…` : label;
+      // Emoji are drawn as Twemoji images near the rim (SVG text can't use the page's emoji swap)
+      const emoji = Emoji.all(label)[0];
+      const plain = label.replace(Emoji.RE, '').replace(/\s+/g, ' ').trim();
+      const text = plain.length > 20 ? `${plain.slice(0, 19)}…` : plain;
+      const textStart = emoji ? -R + 58 : -R + 26;
       // Labels run along the slice; flip the ones that will end up on the right half
       // (after the spin) so none are upside down when the wheel stops
       const finalAngle = (((mid + target) % 360) + 360) % 360;
       const flip = finalAngle > 0 && finalAngle < 180;
       return `<path d="M0 0 L${x1} ${y1} A${R} ${R} 0 ${seg > 180 ? 1 : 0} 1 ${x2} ${y2} Z" fill="${WHEEL_COLORS[i % WHEEL_COLORS.length]}" stroke="#fff" stroke-width="4"/>
-        <text transform="rotate(${mid}) translate(0 ${-R + 26}) rotate(${flip ? -90 : 90})" text-anchor="${flip ? 'end' : 'start'}" dominant-baseline="middle"
+        ${emoji ? `<image href="${Emoji.url(emoji)}" x="-16" y="${-R + 12}" width="32" height="32" transform="rotate(${mid})"/>` : ''}
+        <text transform="rotate(${mid}) translate(0 ${textStart}) rotate(${flip ? -90 : 90})" text-anchor="${flip ? 'end' : 'start'}" dominant-baseline="middle"
           font-size="${n > 7 ? 17 : 21}" class="wheel-text">${esc(text)}</text>`;
     }).join('');
     c.innerHTML = `<h2 class="wheel-title">${esc(r.title)}</h2>
       <div class="wheel-wrap">
         <div class="wheel-pointer">▼</div>
         <svg class="wheel" viewBox="-250 -250 500 500"><g class="wheel-spin">${slices}</g>
-          <circle r="34" fill="#14213d" stroke="#ffca3a" stroke-width="6"/><text class="wheel-hub" text-anchor="middle" dominant-baseline="central">🎲</text></svg>
+          <circle r="34" fill="#14213d" stroke="#ffca3a" stroke-width="6"/><image href="${Emoji.url('🎲')}" x="-20" y="-20" width="40" height="40"/></svg>
       </div>
       <div class="big roulette-result"></div>`;
     const g = c.querySelector('.wheel-spin');
